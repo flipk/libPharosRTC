@@ -1,0 +1,62 @@
+*~
+cscope.dirs
+cscope.files
+cscope.out
+
+/AGENTS.html
+/CHAT.html
+/DESIGN.html
+/LICENSE.html
+/README.html
+
+# Node.js & TypeScript
+node_modules/
+dist/
+build/
+.vite/
+.vitest/
+.tsbuildinfo
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Playwright & Testing Reports
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+coverage/
+.coverage
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.venv/
+venv/
+env/
+
+# C / C++ & Native Build Artifacts
+*.o
+*.obj
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+cmake-build-*/
+
+# OS & Environment
+.DS_Store
+Thumbs.db
+.env
+.env.local
