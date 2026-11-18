@@ -78,7 +78,7 @@ Build the core Selective Repeat ARQ state machines, receiver reorder buffers, SA
 - **Adaptive RTO**:
   $$\text{SRTT} \leftarrow (1 - \alpha) \cdot \text{SRTT} + \alpha \cdot \text{RTT}$$
   $$\text{RTTVAR} \leftarrow (1 - \beta) \cdot \text{RTTVAR} + \beta \cdot |\text{SRTT} - \text{RTT}|$$
-  $$\text{RTO} = \text{clamp}(\text{SRTT} + 4 \cdot \text{RTTVAR}, \text{min\_rto\_ms}, \text{max\_rto\_ms})$$
+  $$\text{RTO} = \text{clamp}(\text{SRTT} + 4 \cdot \text{RTTVAR}, \text{min\\_rto\\_ms}, \text{max\\_rto\\_ms})$$
   *(Calculated exclusively on non-retransmitted frames).*
 - **Receiver Buffer**: In-order delivery to upper layer up to `FLAG_MSG_END`. Out-of-order storage up to 16-bit SACK offset (`Cumulative ACK + 1 + i`).
 - **Segmentation & Reassembly**: Slicing payloads to `max_payload = app_mtu_bytes - 14` and tagging final slice with `FLAG_MSG_END`.
@@ -107,7 +107,7 @@ Build the Python embedded server daemon integrating persistent ECDSA certificate
 - **Signaling**: WebSocket endpoint (`/ws/webrtc`) exchanging SDP Offer/Answer JSON payloads.
 - **Session Preemption**: Single active session rule—tears down old session, resets ARQ state, and binds immediately when a new client connects.
 - **Zero-Copy Optimization**: `memoryview` slicing for outbound buffer processing.
-- **SCTP MTU Safety**: Keep every frame `channel.send()` $\le \text{app\_mtu\_bytes}$ to prevent `aiortc` internal fragmentation.
+- **SCTP MTU Safety**: Keep every frame `channel.send()` $\le \text{app\\_mtu\\_bytes}$ to prevent `aiortc` internal fragmentation.
 
 ### Deliverables
 1. **Signaling Server**: `signaling_server.py`.

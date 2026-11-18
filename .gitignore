@@ -4,13 +4,15 @@ cscope.files
 cscope.out
 
 /AGENTS.html
-/CHAT.html
 /DESIGN.html
 /LICENSE.html
 /README.html
 /REQUIRED.html
-/PLAN.html
-/BENCHMARK_REPORT.html
+
+/archive/BENCHMARK_REPORT.html
+/archive/CHAT.html
+/archive/PLAN.html
+/archive/IMPLEMENT_LOG.html
 
 # Node.js & TypeScript
 node_modules/
