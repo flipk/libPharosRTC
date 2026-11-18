@@ -221,4 +221,53 @@ def test_cross_language_arq_engine():
     js_received_hex = run_node_eval(node_script)
     assert js_received_hex == payload_to_send.hex()
 
+def test_cross_language_fec_recovery():
+    """Python FecEncoder generates parity frame -> JS FecDecoder recovers missing data frame."""
+    from fec_engine import FecEncoder
+    from frame_codec import Frame, FrameHeader, PROTOCOL_VERSION, FLAG_MSG_END
+
+    K = 4
+    py_encoder = FecEncoder(K)
+
+    data_frames = []
+    for i in range(K):
+        payload = bytes([10 + i, 20 + i, 30 + i, 40 + i])
+        data_frames.append(Frame(
+            header=FrameHeader(version=1, flags=FLAG_MSG_END, chid=2, ack_chid=0, payload_length=4, sequence_number=i, cumulative_ack_seq=0, sack_mask=0),
+            payload=payload,
+        ))
+
+    parity_frame = None
+    for f in data_frames:
+        p = py_encoder.add_data_frame(f)
+        if p:
+            parity_frame = p
+
+    assert parity_frame is not None
+
+    # Simulate dropping Frame 2. Send Frame 0, 1, 3 and Parity Frame to JS
+    node_script = f"""
+    const {{ FecDecoder, decodeFrame }} = require('./dist/index.cjs');
+    const decoder = new FecDecoder({K});
+
+    const df0 = decodeFrame(Buffer.from('{encode_frame(data_frames[0]).hex()}', 'hex'));
+    const df1 = decodeFrame(Buffer.from('{encode_frame(data_frames[1]).hex()}', 'hex'));
+    const df3 = decodeFrame(Buffer.from('{encode_frame(data_frames[3]).hex()}', 'hex'));
+    const pf = decodeFrame(Buffer.from('{encode_frame(parity_frame).hex()}', 'hex'));
+
+    decoder.addDataFrame(df0);
+    decoder.addDataFrame(df1);
+    decoder.addDataFrame(df3);
+
+    const recovered = decoder.processParityFrame(pf);
+    console.log(JSON.stringify({{
+        recoveredSeq: recovered ? recovered.header.sequenceNumber : null,
+        recoveredPayloadHex: recovered ? Buffer.from(recovered.payload).toString('hex') : null
+    }}));
+    """
+    res = json.loads(run_node_eval(node_script))
+    assert res["recoveredSeq"] == 2
+    assert res["recoveredPayloadHex"] == bytes(data_frames[2].payload).hex()
+
+
 

@@ -1,6 +1,6 @@
 # libPharosRTC Network Impairment Benchmark Report
 
-**Generated Date**: 2026-11-18 02:03:10 UTC  
+**Generated Date**: 2026-11-18 02:10:09 UTC  
 **Protocol Version**: `v0.1.0`  
 **Test Harness**: Linux `tc netem` + Playwright E2E Test Suite
 

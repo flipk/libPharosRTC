@@ -6,3 +6,4 @@ export * from './SignalingClient';
 export * from './WebRtcTransport';
 export * from './ArqWorker';
 export * from './ResilientLinkClient';
+export * from './FecEngine';

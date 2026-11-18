@@ -27,6 +27,14 @@ from .arq_engine import ArqEngine, ArqStats
 from .webrtc_backend import WebRtcBackend, get_or_create_ecdsa_certificate
 from .signaling_server import SignalingServer
 from .link import ResilientLink
+from .fec_engine import (
+    FLAG_FEC_PARITY,
+    xor_buffers,
+    encode_parity_payload,
+    decode_parity_payload,
+    FecEncoder,
+    FecDecoder,
+)
 
 __all__ = [
     "LinkConfig",
@@ -57,4 +65,10 @@ __all__ = [
     "get_or_create_ecdsa_certificate",
     "SignalingServer",
     "ResilientLink",
+    "FLAG_FEC_PARITY",
+    "xor_buffers",
+    "encode_parity_payload",
+    "decode_parity_payload",
+    "FecEncoder",
+    "FecDecoder",
 ]
