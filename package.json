@@ -1,0 +1,48 @@
+{
+  "name": "libpharosrtc",
+  "version": "0.1.0",
+  "description": "Resilient Browser-to-Embedded Transport over High-BER IP Links",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src/ts"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test"
+  },
+  "keywords": [
+    "webrtc",
+    "datachannel",
+    "arq",
+    "selective-repeat",
+    "reliable-transport",
+    "high-ber",
+    "starlink",
+    "rf-telemetry",
+    "embedded"
+  ],
+  "license": "Unlicense",
+  "devDependencies": {
+    "@playwright/test": "^1.48.2",
+    "@types/node": "^22.8.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "vitest": "^2.1.3"
+  }
+}
