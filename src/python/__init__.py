@@ -22,6 +22,7 @@ from .frame_codec import (
     encode_frame,
     decode_frame,
 )
+from .priority_scheduler import PriorityScheduler, PendingAck
 
 __all__ = [
     "LinkConfig",
@@ -44,4 +45,6 @@ __all__ = [
     "decode_header",
     "encode_frame",
     "decode_frame",
+    "PriorityScheduler",
+    "PendingAck",
 ]

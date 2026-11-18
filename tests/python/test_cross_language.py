@@ -146,3 +146,46 @@ def test_python_encode_ts_decode():
         assert res_json["cumulativeAckSeq"] == frame.header.cumulative_ack_seq
         assert res_json["sackMask"] == frame.header.sack_mask
         assert res_json["payloadHex"] == bytes(frame.payload).hex()
+
+def test_cross_language_priority_scheduling():
+    """Verify JS and Python PrioritySchedulers produce identical dequeue sequences."""
+    node_script = """
+    const { PriorityScheduler, TERRESTRIAL_HIGH_BER_PROFILE, DEFAULT_CHANNELS, FLAG_MSG_END } = require('./dist/index.cjs');
+    const s = new PriorityScheduler(TERRESTRIAL_HIGH_BER_PROFILE, DEFAULT_CHANNELS);
+
+    // Queue 3 bulk frames on ChID 2
+    s.enqueueMessage(2, new Uint8Array(206 * 3));
+    // Queue C2 message on ChID 0
+    s.enqueueMessage(0, new Uint8Array([1, 2, 3]));
+    // Queue retransmission on ChID 2
+    s.enqueueRetransmission(2, {
+        header: { version: 1, flags: FLAG_MSG_END, chid: 2, ackChid: 0, payloadLength: 1, sequenceNumber: 99, cumulativeAckSeq: 0, sackMask: 0 },
+        payload: new Uint8Array([99])
+    });
+
+    const sequence = [];
+    let f;
+    while ((f = s.dequeueNextFrame()) !== null) {
+        sequence.push({ chid: f.header.chid, seq: f.header.sequenceNumber });
+    }
+    console.log(JSON.stringify(sequence));
+    """
+    js_seq = json.loads(run_node_eval(node_script))
+
+    # Perform same sequence in Python
+    from priority_scheduler import PriorityScheduler
+    from config import TERRESTRIAL_HIGH_BER_PROFILE, DEFAULT_CHANNELS
+    py_s = PriorityScheduler(TERRESTRIAL_HIGH_BER_PROFILE, DEFAULT_CHANNELS)
+    py_s.enqueue_message(2, b"X" * (206 * 3))
+    py_s.enqueue_message(0, b"\x01\x02\x03")
+    py_s.enqueue_retransmission(2, Frame(
+        header=FrameHeader(version=1, flags=FLAG_MSG_END, chid=2, ack_chid=0, payload_length=1, sequence_number=99, cumulative_ack_seq=0, sack_mask=0),
+        payload=b"\x63"
+    ))
+
+    py_seq = []
+    while (f := py_s.dequeue_next_frame()) is not None:
+        py_seq.append({"chid": f.header.chid, "seq": f.header.sequence_number})
+
+    assert js_seq == py_seq
+
