@@ -23,6 +23,7 @@ from .frame_codec import (
     decode_frame,
 )
 from .priority_scheduler import PriorityScheduler, PendingAck
+from .arq_engine import ArqEngine, ArqStats
 
 __all__ = [
     "LinkConfig",
@@ -47,4 +48,6 @@ __all__ = [
     "decode_frame",
     "PriorityScheduler",
     "PendingAck",
+    "ArqEngine",
+    "ArqStats",
 ]

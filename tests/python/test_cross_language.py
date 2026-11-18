@@ -189,3 +189,36 @@ def test_cross_language_priority_scheduling():
 
     assert js_seq == py_seq
 
+def test_cross_language_arq_engine():
+    """Verify TS ArqEngine and Python ArqEngine exchange fragmented messages with 100% parity."""
+    # Python sends multi-frame message -> JS receives and reassembles
+    from arq_engine import ArqEngine
+    from config import TERRESTRIAL_HIGH_BER_PROFILE, DEFAULT_CHANNELS
+
+    py_sender = ArqEngine(TERRESTRIAL_HIGH_BER_PROFILE, DEFAULT_CHANNELS)
+    payload_to_send = bytes((i * 11) & 0xFF for i in range(500))
+    py_sender.send_message(2, payload_to_send)
+
+    frames_hex = []
+    while (f := py_sender.dequeue_next_frame(now=0)) is not None:
+        frames_hex.append(encode_frame(f).hex())
+
+    node_script = f"""
+    const {{ ArqEngine, TERRESTRIAL_HIGH_BER_PROFILE, DEFAULT_CHANNELS, decodeFrame }} = require('./dist/index.cjs');
+    const receiver = new ArqEngine(TERRESTRIAL_HIGH_BER_PROFILE, DEFAULT_CHANNELS);
+    let receivedPayload = null;
+    receiver.onMessage((chid, payload) => {{
+        receivedPayload = Buffer.from(payload).toString('hex');
+    }});
+
+    const framesHex = {json.dumps(frames_hex)};
+    for (const hex of framesHex) {{
+        const f = decodeFrame(Buffer.from(hex, 'hex'));
+        receiver.onWireFrame(f, 0);
+    }}
+    console.log(receivedPayload);
+    """
+    js_received_hex = run_node_eval(node_script)
+    assert js_received_hex == payload_to_send.hex()
+
+
