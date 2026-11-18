@@ -2,3 +2,7 @@ export * from './config';
 export * from './FrameCodec';
 export * from './PriorityScheduler';
 export * from './ArqEngine';
+export * from './SignalingClient';
+export * from './WebRtcTransport';
+export * from './ArqWorker';
+export * from './ResilientLinkClient';
