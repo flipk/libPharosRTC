@@ -47,8 +47,16 @@ export class ResilientLinkClient {
     });
 
     this.transport.onChannelOpen(() => {
-      this.drainDirectEngine();
+      if (this.workerHandler) {
+        this.workerHandler.drainOutbound();
+      } else if (this.directEngine) {
+        this.drainDirectEngine();
+      }
     });
+  }
+
+  public onChannelOpen(cb: () => void): void {
+    this.transport.onChannelOpen(cb);
   }
 
   public async connect(signalingUrl: string): Promise<void> {

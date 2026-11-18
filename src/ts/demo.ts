@@ -33,6 +33,10 @@ btnConnect.addEventListener('click', async () => {
 
   client = new ResilientLinkClient(undefined, undefined, true); // Use WebWorker
 
+  client.onChannelOpen(() => {
+    connStatus.textContent = 'Status: WebRTC DataChannel Open';
+  });
+
   client.onReceive(0, (payload) => {
     const text = new TextDecoder().decode(payload);
     logC2(`RX (ChID 0): ${text}`);

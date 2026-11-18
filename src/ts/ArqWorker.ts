@@ -66,10 +66,11 @@ export class ArqWorkerHandler {
     this.postMessageCb = postMessageCb;
     this.arqEngine = new ArqEngine(linkConfig, channelConfigs);
     this.arqEngine.onMessage((chid, payload) => {
+      const ab = payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength);
       this.postMessageCb({
         type: 'messageReceived',
         chid,
-        payload: payload.buffer,
+        payload: ab,
       });
     });
   }
@@ -84,10 +85,11 @@ export class ArqWorkerHandler {
 
     this.arqEngine = new ArqEngine(cfg, chCfgs);
     this.arqEngine.onMessage((chid, payload) => {
+      const ab = payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength);
       this.postMessageCb({
         type: 'messageReceived',
         chid,
-        payload: payload.buffer,
+        payload: ab,
       });
     });
 
@@ -179,9 +181,10 @@ export class ArqWorkerHandler {
     let frame: Frame | null;
     while ((frame = this.arqEngine.dequeueNextFrame(now)) !== null) {
       const buf = encodeFrame(frame);
+      const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
       this.postMessageCb({
         type: 'wireFrameToSend',
-        frameBuffer: buf.buffer,
+        frameBuffer: ab,
       });
     }
   }
