@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>libPharosRTC Interactive Lossy Link Demo</title>
+  <script type="module" crossorigin src="/assets/index--kR7Dhxg.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-DEJ1sDb2.css">
+</head>
+<body>
+  <div class="app-container">
+    <header class="app-header">
+      <div class="brand">
+        <h1>libPharosRTC</h1>
+        <span class="subtitle">Resilient WebRTC Transport Demo & Benchmarking</span>
+      </div>
+      <div class="connection-bar">
+        <span id="connBadge" class="badge badge-disconnected">Disconnected</span>
+        <button id="btnConnect" class="btn btn-primary">Connect WebRTC</button>
+        <button id="btnDisconnect" class="btn btn-secondary" disabled>Disconnect</button>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <!-- IMPAIRMENT CONTROLLER PANEL -->
+      <section class="card impairment-card">
+        <h2>Simulated Link Impairment (Software Packet Loss)</h2>
+        <div class="impairment-controls">
+          <div class="slider-group">
+            <label for="lossSlider">
+              Packet Loss Rate: <strong id="lossValue">0%</strong>
+            </label>
+            <input type="range" id="lossSlider" min="0" max="50" value="0" step="1" />
+          </div>
+          <div class="radio-group">
+            <span class="label-text">Apply Loss To:</span>
+            <label><input type="radio" name="lossDir" value="both" checked /> Both (TX + RX)</label>
+            <label><input type="radio" name="lossDir" value="client_tx" /> Client TX Only</label>
+            <label><input type="radio" name="lossDir" value="server_tx" /> Server TX Only</label>
+          </div>
+        </div>
+      </section>
+
+      <!-- FILE TRANSFER TEST BENCH -->
+      <section class="card transfer-card">
+        <h2>File Transfer Stress Bench</h2>
+        <div class="transfer-controls">
+          <div class="control-row">
+            <div class="field-group">
+              <label for="transferDirection">Mode:</label>
+              <select id="transferDirection">
+                <option value="upload">Upload (Client &rarr; Server)</option>
+                <option value="download">Download (Server &rarr; Client)</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <label>Presets:</label>
+              <div class="btn-group">
+                <button class="btn btn-outline preset-btn" data-size="1048576">1 MB</button>
+                <button class="btn btn-outline preset-btn" data-size="5242880">5 MB</button>
+                <button class="btn btn-outline preset-btn" data-size="10485760">10 MB</button>
+              </div>
+            </div>
+            <div class="field-group">
+              <label for="filePicker">Custom Local File:</label>
+              <input type="file" id="filePicker" />
+            </div>
+          </div>
+
+          <div class="action-row">
+            <button id="btnStartTransfer" class="btn btn-success" disabled>Start Transfer</button>
+            <button id="btnCancelTransfer" class="btn btn-danger" disabled>Cancel</button>
+          </div>
+
+          <div class="progress-section">
+            <div class="progress-header">
+              <span id="transferStatusText">Idle</span>
+              <span id="transferProgressText">0% (0 / 0 B)</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div id="progressBarFill" class="progress-bar-fill"></div>
+            </div>
+            <div class="transfer-metrics">
+              <span>Speed: <strong id="transferSpeed">0 KB/s</strong></span>
+              <span>Elapsed: <strong id="transferElapsed">0.0s</strong></span>
+              <span>Integrity Hash: <span id="integrityBadge" class="badge badge-neutral">Waiting</span></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TELEMETRY & METRICS DASHBOARD -->
+      <section class="card telemetry-card">
+        <h2>Real-Time ARQ & FEC Telemetry Dashboard</h2>
+        <div class="grid-3">
+          <!-- ARQ Packet Counts -->
+          <div class="metric-box">
+            <h3>ARQ Datagram Counters</h3>
+            <div class="metric-row"><span>TX Frames:</span><strong id="statTx">0</strong></div>
+            <div class="metric-row"><span>RX Frames:</span><strong id="statRx">0</strong></div>
+            <div class="metric-row"><span>Retransmissions:</span><strong id="statRetx">0</strong></div>
+            <div class="metric-row"><span>Retransmit Ratio:</span><strong id="statRetxRatio">0.0%</strong></div>
+          </div>
+
+          <!-- RTT & Latency -->
+          <div class="metric-box">
+            <h3>Link Health & RTO</h3>
+            <div class="metric-row"><span>Smoothed RTT:</span><strong id="statRtt">0.0 ms</strong></div>
+            <div class="metric-row"><span>Adaptive RTO:</span><strong id="statRto">0.0 ms</strong></div>
+            <div class="metric-row"><span>Est. ARQ Loss:</span><strong id="statLoss">0.0%</strong></div>
+            <div class="metric-row"><span>App-MTU Config:</span><strong id="statMtu">220 B</strong></div>
+          </div>
+
+          <!-- FEC Parity Stats -->
+          <div class="metric-box highlight-box">
+            <h3>FEC Parity & Loss Recovery</h3>
+            <div class="metric-row"><span>Parity Frames TX/RX:</span><strong id="statParityFrames">0 / 0</strong></div>
+            <div class="metric-row text-highlight">
+              <span>XOR Parity Recoveries:</span>
+              <strong id="statParityRecoveries" class="pulse-val">0</strong>
+            </div>
+            <div class="metric-subtext">
+              (Count of lost data frames reconstituted instantly via XOR parity without ARQ retransmission)
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PRIORITY PREEMPTION C2 TEST -->
+      <section class="card c2-card">
+        <h2>Command & Control (ChID 0) Priority Preemption Test</h2>
+        <p class="section-desc">
+          Send high-priority C2 messages during active file transfers on ChID 2 to demonstrate zero C2 starvation.
+        </p>
+        <div class="c2-input-row">
+          <input type="text" id="c2Input" placeholder="Enter command message (e.g. Ping / Emergency Stop)..." />
+          <button id="btnSendC2" class="btn btn-primary" disabled>Send High-Priority C2</button>
+        </div>
+        <div id="c2Log" class="c2-log-box">
+          <div class="log-line text-muted">[System] Ready to test priority preemption on ChID 0.</div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <p>libPharosRTC Transports over Lossy High-BER IP Links &bull; Built with TypeScript, Web Workers, & Python aiortc</p>
+    </footer>
+  </div>
+
+</body>
+</html>
