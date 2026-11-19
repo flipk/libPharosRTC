@@ -104,6 +104,9 @@ export class ResilientLinkClient {
       rttVarMs: 0,
       currentRtoMs: 0,
       estimatedPacketLoss: 0,
+      fecParityTx: 0,
+      fecParityRx: 0,
+      fecRecoveries: 0,
     };
   }
 

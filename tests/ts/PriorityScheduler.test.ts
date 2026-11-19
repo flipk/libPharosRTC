@@ -116,9 +116,8 @@ describe('PriorityScheduler (TypeScript)', () => {
     expect(scheduler.dequeueNextFrame()!.header.chid).toBe(2);
   });
 
-  it('throttles transmission based on buffer low-water mark (bufferedAmount < 4 * appMtuBytes)', () => {
-    const mtu = TERRESTRIAL_HIGH_BER_PROFILE.appMtuBytes;
-    const lowWaterMark = 4 * mtu; // 880 bytes
+  it('throttles transmission based on buffer low-water mark (bufferedAmount < lowWaterMark)', () => {
+    const lowWaterMark = scheduler.getLowWaterMark();
 
     scheduler.enqueueMessage(0, new Uint8Array([1, 2, 3]));
 

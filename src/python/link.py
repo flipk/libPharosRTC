@@ -40,8 +40,8 @@ class ResilientLink:
             await self.signaling_server.stop()
             self.signaling_server = None
 
-    async def accept_offer(self, offer_sdp: str) -> str:
-        return await self.backend.handle_offer(offer_sdp)
+    async def accept_offer(self, offer_sdp: str, client_ip: str = "127.0.0.1") -> str:
+        return await self.backend.handle_offer(offer_sdp, client_ip=client_ip)
 
     def send(self, channel_id: int, payload: Union[bytes, bytearray, memoryview]) -> bool:
         return self.backend.send(channel_id, payload)

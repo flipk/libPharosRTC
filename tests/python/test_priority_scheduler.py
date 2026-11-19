@@ -105,8 +105,7 @@ def test_strict_hierarchy_retransmission_over_new():
 
 def test_buffer_low_water_mark_throttling():
     scheduler = PriorityScheduler(TERRESTRIAL_HIGH_BER_PROFILE, DEFAULT_CHANNELS)
-    mtu = TERRESTRIAL_HIGH_BER_PROFILE.app_mtu_bytes
-    low_water_mark = 4 * mtu  # 880 bytes
+    low_water_mark = scheduler.get_low_water_mark()
 
     scheduler.enqueue_message(0, b"data")
 

@@ -12,6 +12,10 @@
 
 > **RTC**: Real Time Communication, where WebRTC is the web standard being used as the transport.
 
+### Developer Guides
+- [Web UI Developer Guide](docs/WEB_UI_DEVELOPER_GUIDE.md) - Integrating libPharosRTC into TypeScript/JavaScript browser applications.
+- [Python Server-Side Developer Guide](docs/PYTHON_DEVELOPER_GUIDE.md) - Integrating libPharosRTC into Python / embedded Linux backends.
+
 
 ### Core Architectural Decisions
 1. **Zero-Install Browser Endpoint:** Uses standard browser

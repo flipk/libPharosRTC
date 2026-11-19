@@ -24,7 +24,7 @@ def test_encode_decode_parity_payload():
     parity_bytes = b"\x0a\x14\x1e\x28"
     encoded = encode_parity_payload(100, 4, parity_bytes)
 
-    seq_start, k, decoded_bytes = decode_parity_payload(encoded)
+    seq_start, k, decoded_bytes = decode_parity_payload(encoded)[:3]
     assert seq_start == 100
     assert k == 4
     assert decoded_bytes == parity_bytes

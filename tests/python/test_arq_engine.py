@@ -86,14 +86,15 @@ def test_multi_frame_segmentation_reassembly():
     frames = []
     while (f := sender.dequeue_next_frame(0)) is not None:
         frames.append(f)
-    assert len(frames) == 5
+    data_frames = [fr for fr in frames if (fr.header.ack_chid & 0x80) == 0]
+    assert len(data_frames) == 5
 
     # Deliver out of order: 0, 2, 4, 1, 3
-    receiver.on_wire_frame(frames[0], 0)
-    receiver.on_wire_frame(frames[2], 0)
-    receiver.on_wire_frame(frames[4], 0)
-    receiver.on_wire_frame(frames[1], 0)
-    receiver.on_wire_frame(frames[3], 0)
+    receiver.on_wire_frame(data_frames[0], 0)
+    receiver.on_wire_frame(data_frames[2], 0)
+    receiver.on_wire_frame(data_frames[4], 0)
+    receiver.on_wire_frame(data_frames[1], 0)
+    receiver.on_wire_frame(data_frames[3], 0)
 
     assert len(received_msgs) == 1
     assert received_msgs[0] == large_payload

@@ -46,6 +46,7 @@ This document specifies a reusable, zero-install browser-to-embedded transport p
 ### Session Lifecycle & Preemption
 
 * **Single Active Session & Session Preemption:** The embedded server enforces a single active control session. If a new browser client completes a WebSocket signaling handshake while a previous session is active (or stale due to an RF blackout), the server tears down the old `RTCPeerConnection`, resets the ARQ state, and binds to the new peer.
+* **SDP Offer Sanitization:** `WebRtcBackend` filters `.local` mDNS candidate lines from browser SDP offers before setting remote descriptions to prevent connection delays when operating in isolated or embedded environments without mDNS resolvers.
 * **Signaling Flow:**
    1. Browser loads static Web app from `NGINX` (`HTTP/HTTPS`).
    2. Browser opens WebSocket to `ws://<device-ip>:8765/ws/webrtc` (or via NGINX proxy), connected to Python `SignalingServer`.
@@ -101,7 +102,7 @@ Every message passed to `RTCDataChannel.send()` is a single binary frame strictl
   * `0x2` (`FLAG_ACK_ONLY`): Frame carries no application payload (`Payload Length == 0`), used solely to advance ACKs/SACKs or carry FEC parity payloads.
   * `0x4` (`FLAG_MSG_END`): Marks the final fragment of a multi-frame application message or bulk file chunk.
 * **`ChID` (3 bits):** Logical Channel ID (`0..7`). Lower numeric `ChID` = higher scheduling priority (`ChID 0` is highest).
-* **`AckChID` (8 bits):** Target channel ID (`0..7`) to which the piggybacked `Cumulative ACK Sequence` and `SACK Bitmask` apply. For FEC parity frames, bit 7 (`0x80`) is set to `FLAG_FEC_PARITY`.
+* **`AckChID` (8 bits):** Target channel ID (`0..7`) to which the piggybacked `Cumulative ACK Sequence` and `SACK Bitmask` apply (`ackChid & 0x7F`). For FEC parity frames, bit 7 (`0x80`) is set to `FLAG_FEC_PARITY`.
 * **`Payload Length` (16 bits):** Byte length of frame payload (`0` to `app_mtu_bytes - 14`).
 * **`Sequence Number` (32 bits):** Monotonically increasing packet sequence number per channel (wraps modulo $2^{32}$ using serial number arithmetic).
 * **`Cumulative ACK Sequence` (32 bits):** Highest contiguous sequence number received in-order on `AckChID`.
@@ -131,11 +132,14 @@ Both the Browser (TypeScript) and Embedded Server (Python 3) execute identical s
    * Sliced into chunks of size `max_payload = app_mtu_bytes - 14`.
    * The final chunk of a discrete message is tagged with `FLAG_MSG_END`.
 2. **Strict Priority Dequeue Order:**
-   * When `bufferedAmount < 4 * app_mtu_bytes`, frames are dequeued in strict channel priority order (sorted by `priority` ascending):
+   * When `bufferedAmount < 64 * app_mtu_bytes` (low-water mark checked via `getLowWaterMark()`), frames are dequeued in strict channel priority order (sorted by `priority` ascending):
       1. **Expired Retransmissions** on highest-priority channel first (`ChID 0` -> `ChID 1` -> ...).
       2. **New Outbound Frames** (respecting channel `windowSize` in-flight limits for `RELIABLE_ORDERED`) on highest-priority channel first.
       3. **Standalone `FLAG_ACK_ONLY` Frames** if an ACK timer expired or receiver state needs to be updated.
    * Because `ChID 0` (C2) preempts `ChID 2` (Bulk), high-priority commands yield within **1 frame time** (~1–2 ms).
+3. **Piggybacking & Retransmission Cleanup:**
+   * Piggybacked ACKs preserve any `FLAG_FEC_PARITY` flag in `AckChID` (`(pendingAck.ackChid & 0x7F) | parityFlag`).
+   * When a frame sequence number is acknowledged (via cumulative ACK or SACK), `removeAckedRetransmission()` removes matching pending retransmissions for that sequence number from priority retransmit queues.
 
 ### 5.2 Selective Repeat ARQ & Self-Healing ACKs (`ArqEngine`)
 
@@ -144,8 +148,10 @@ Both the Browser (TypeScript) and Embedded Server (Python 3) execute identical s
   * In-order frames (`seq == nextExpectedSeq`) are immediately reassembled up to `FLAG_MSG_END` and delivered to callbacks.
   * Out-of-order frames (`seq > nextExpectedSeq`) are held in the reorder buffer and set the corresponding bit in the 16-bit SACK mask.
 * **Piggybacked & Self-Healing ACKs:** Every outgoing frame stamps `AckChID`, `Cumulative ACK`, and `SACK Bitmask`. Because every frame carries full cumulative state + 16-packet bitmask, losing ACK packets on the RF link causes zero stalls—the next surviving frame heals the sender's window.
+* **Fast Retransmit:** If 3 or more packets higher than an unacknowledged slot have been ACKed or SACKed (`sackedAbove >= 3`), and the slot has not been retransmitted yet or `now - lastSentTs >= RTO / 2`, the unacknowledged frame is queued for immediate Fast Retransmit without waiting for standard RTO expiration.
 * **Adaptive RTO (Jacobson/Karels):**
   * Updated strictly from clean (non-retransmitted) RTT samples (`retransmitCount == 0`).
+  * To avoid RTT estimate corruption from head-of-line blocking delays, samples are only recorded if the ACK was a SACK or the frame was sent at or after `lastRetransmitTs`.
   * Formula: $\text{RTTVAR} = (1 - \beta) \cdot \text{RTTVAR} + \beta \cdot |\text{SRTT} - \text{RTT}|$, $\text{SRTT} = (1 - \alpha) \cdot \text{SRTT} + \alpha \cdot \text{RTT}$ (where $\alpha = 0.125, \beta = 0.25$).
   * $\text{RTO} = \text{SRTT} + 4 \cdot \text{RTTVAR}$, clamped between `[min_rto_ms, max_rto_ms]`.
   * Selective retransmission queues only the specific timed-out frame.
@@ -153,10 +159,11 @@ Both the Browser (TypeScript) and Embedded Server (Python 3) execute identical s
 ### 5.3 Forward Error Correction (`FecEngine`)
 
 * **In-band XOR Parity:** When `fecXorGroup` $K > 0$ (default $K=4$ on high-BER links):
-  * `FecEncoder` aggregates $K$ data frames, computes bitwise XOR across their payloads, and constructs a parity payload:
-    * `groupSeqStart` (uint32, 4B) + `groupSize` (uint16, 2B) + XOR parity bytes.
+  * `FecEncoder` aggregates $K$ data frames on the same channel, computes bitwise XOR across their payloads, and constructs a parity payload:
+    * `groupSeqStart` (uint32, 4B) + `groupSize` (uint16, 2B) + `flagsMask` (uint16, 2B) + `endLengths` (array of uint16, 2B per frame with `FLAG_MSG_END`) + XOR parity bytes.
   * Emits a parity frame with `flags = FLAG_ACK_ONLY` and `ackChid = (ackChid & 0x7F) | 0x80` (`FLAG_FEC_PARITY`).
-  * `FecDecoder` tracks received frames per group. If exactly 1 data frame in group $K$ is lost, XORing the parity payload with the $K-1$ present data payloads recovers the missing payload instantly without waiting for an RTO timeout.
+  * `FecDecoder` tracks received frames per group. If exactly 1 data frame in group $K$ is lost, XORing the parity payload with the $K-1$ present data payloads recovers the missing payload instantly without waiting for an RTO timeout. `flagsMask` and `endLengths` enable exact reconstruction of `FLAG_MSG_END` and missing payload lengths.
+  * Groups reset if data frames cross channel boundaries, and incomplete groups are pruned (retaining top 32 active) to prevent memory leaks.
 
 ---
 
@@ -166,11 +173,11 @@ Both the Browser (TypeScript) and Embedded Server (Python 3) execute identical s
 
 * `config.ts`: `LinkConfig`, `ChannelConfig`, profiles (`TERRESTRIAL_HIGH_BER_PROFILE`, `STARLINK_PROFILE`), and `DEFAULT_CHANNELS`.
 * `FrameCodec.ts`: Binary header encoding and decoding via `DataView` with 100% network byte order equivalence.
-* `PriorityScheduler.ts`: Priority queues (`newFrameQueues`, `retransmitQueues`), sequence assignment, and low-water mark checking.
-* `ArqEngine.ts`: ARQ state machine, sliding window, SACK bitmask calculation, and Jacobson/Karels RTO.
-* `FecEngine.ts`: XOR `FecEncoder` and `FecDecoder` logic.
+* `PriorityScheduler.ts`: Priority queues (`newFrameQueues`, `retransmitQueues`), sequence assignment, low-water mark checking (`getLowWaterMark()`), and queue cleanup (`removeAckedRetransmission()`).
+* `ArqEngine.ts`: ARQ state machine, sliding window, SACK bitmask calculation, Jacobson/Karels RTO, Fast Retransmit, and `ArqStats` export (`txFrames`, `rxFrames`, `retransmissions`, `smoothedRttMs`, `rttVarMs`, `currentRtoMs`, `estimatedPacketLoss`, `fecParityTx`, `fecParityRx`, `fecRecoveries`).
+* `FecEngine.ts`: In-band XOR `FecEncoder` and `FecDecoder` logic handling `flagsMask` and `endLengths`.
 * `SignalingClient.ts`: Manages WebSocket signaling (`ws://<ip>:8765/ws/webrtc`), automatic reconnection, and SDP Offer/Answer JSON exchange.
-* `WebRtcTransport.ts`: Wraps browser `RTCPeerConnection` (`iceServers: []`) and unordered `RTCDataChannel("link", { ordered: false, maxRetransmits: 0 })`.
+* `WebRtcTransport.ts`: Wraps browser `RTCPeerConnection` (`iceServers: []`) and unordered `RTCDataChannel("link", { ordered: false, maxRetransmits: 0 })`. Provides transport-level impairment filters (`setInboundFilter`, `setOutboundFilter`).
 * `ArqWorker.ts`: `ArqWorkerHandler` running an unthrottled `10 ms` timer tick loop inside WebWorker scope. Handles `sendBlob` streaming via 64KB on-demand slices checked against send window capacity (`inFlight < 16`).
 * `ResilientLinkClient.ts`: Main frontend entry point supporting main-thread or WebWorker execution (`useWorker: true/false`).
 
@@ -183,11 +190,12 @@ Both the Browser (TypeScript) and Embedded Server (Python 3) execute identical s
 * `config.py`: Link profiles and channel configurations.
 * `frame_codec.py`: Header packing via `struct.Struct("!BBHIIH")` and `memoryview` slicing.
 * `priority_scheduler.py`: Strict priority dequeue and in-flight tracking.
-* `arq_engine.py`: Python `ArqEngine` implementation matching TypeScript behavior.
+* `arq_engine.py`: Python `ArqEngine` implementation matching TypeScript behavior, exporting `ArqStats` with FEC counters (`fec_parity_tx`, `fec_parity_rx`, `fec_recoveries`).
 * `fec_engine.py`: Python `FecEncoder` and `FecDecoder`.
 * `webrtc_backend.py`: `WebRtcBackend` wrapping `aiortc.RTCPeerConnection` and `RTCDataChannel`.
   * Runs a `5 ms` outbound task tick loop (`asyncio.sleep(0.005)`).
   * Uses `cryptography` to generate or load persistent ECDSA P-256 certificates from `/tmp/webrtc_cert.pem` & `/tmp/webrtc_key.pem`.
+  * Includes `sanitize_sdp_offer` to filter out `.local` mDNS candidate lines.
   * Supports session preemption: new WebSocket offers automatically close stale connections and reinitialize `ArqEngine`.
 * `signaling_server.py`: `SignalingServer` using `websockets` serving `ws://0.0.0.0:8765/ws/webrtc`.
 * `link.py`: `ResilientLink` high-level facade.
@@ -239,6 +247,19 @@ For native C++ embedded deployment, `libPharosRTC` specifies a zero-dependency a
 ### TypeScript Client API (`ResilientLinkClient`)
 
 ```typescript
+export interface ArqStats {
+  txFrames: number;
+  rxFrames: number;
+  retransmissions: number;
+  smoothedRttMs: number;
+  rttVarMs: number;
+  currentRtoMs: number;
+  estimatedPacketLoss: number;
+  fecParityTx: number;
+  fecParityRx: number;
+  fecRecoveries: number;
+}
+
 export class ResilientLinkClient {
   constructor(
     linkConfig?: LinkConfig,
@@ -258,6 +279,19 @@ export class ResilientLinkClient {
 ### Python Server API (`ResilientLink`)
 
 ```python
+@dataclass
+class ArqStats:
+    tx_frames: int
+    rx_frames: int
+    retransmissions: int
+    smoothed_rtt_ms: float
+    rtt_var_ms: float
+    current_rto_ms: float
+    estimated_packet_loss: float
+    fec_parity_tx: int = 0
+    fec_parity_rx: int = 0
+    fec_recoveries: int = 0
+
 class ResilientLink:
     def __init__(
         self,
@@ -271,7 +305,7 @@ class ResilientLink:
         self, host: str = "0.0.0.0", port: int = 8765, path: str = "/ws/webrtc"
     ) -> None: ...
 
-    async def accept_offer(self, offer_sdp: str) -> str: ...
+    async def accept_offer(self, offer_sdp: str, client_ip: str = "127.0.0.1") -> str: ...
     def send(self, channel_id: int, payload: Union[bytes, bytearray, memoryview]) -> bool: ...
     def on_receive(self, channel_id: int, callback: Callable[[bytes], None]) -> None: ...
     def get_stats(self, channel_id: int) -> ArqStats: ...

@@ -47,10 +47,10 @@ class PriorityScheduler:
         self.pending_ack = PendingAck()
 
     def can_send(self, buffered_amount: int) -> bool:
-        return buffered_amount < 4 * self.link_config.app_mtu_bytes
+        return buffered_amount < self.get_low_water_mark()
 
     def get_low_water_mark(self) -> int:
-        return 4 * self.link_config.app_mtu_bytes
+        return 64 * self.link_config.app_mtu_bytes
 
     def enqueue_message(
         self,
@@ -189,7 +189,8 @@ class PriorityScheduler:
 
     def _apply_piggybacked_ack(self, frame: Frame) -> None:
         if self.pending_ack.has_ack:
-            frame.header.ack_chid = self.pending_ack.ack_chid
+            parity_flag = frame.header.ack_chid & 0x80
+            frame.header.ack_chid = (self.pending_ack.ack_chid & 0x7F) | parity_flag
             frame.header.cumulative_ack_seq = self.pending_ack.cum_ack_seq
             frame.header.sack_mask = self.pending_ack.sack_mask
             self.pending_ack.has_ack = False
@@ -197,6 +198,11 @@ class PriorityScheduler:
     def release_in_flight(self, chid: int, count: int = 1) -> None:
         current = self.in_flight_counts.get(chid, 0)
         self.in_flight_counts[chid] = max(0, current - count)
+
+    def remove_acked_retransmission(self, chid: int, seq: int) -> None:
+        queue = self.retransmit_queues.get(chid)
+        if queue:
+            self.retransmit_queues[chid] = [f for f in queue if f.header.sequence_number != seq]
 
     def get_in_flight_count(self, chid: int) -> int:
         return self.in_flight_counts.get(chid, 0)

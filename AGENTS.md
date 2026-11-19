@@ -136,7 +136,35 @@ libPharosRTC/
 
 ---
 
-## 5. Development & Testing Instructions
+## 5. Git Execution Policy
+
+Agents must treat Git operations as **strictly read-only**. Do not
+make, stage, alter, or push any changes via Git.
+
+- **Allowed (Read-Only):**
+  - Repository status: `git status`, `git status --short`
+  - History & inspection: `git log`, `git show`, `git rev-parse`
+  - Diffs & comparisons: `git diff`, `git diff --staged`, `git diff
+    <commit>..<commit>`
+  - Branch & remote listing: `git branch --list`, `git branch -a`,
+    `git remote -v`
+  - File search & tree listing: `git ls-files`, `git grep`
+
+- **Forbidden (Modifying/Mutating):**
+  - Staging or committing: `git add`, `git commit`, `git rm`, `git mv`
+  - Remote alterations: `git push`, `git fetch`, `git pull`
+  - State or ref manipulation: `git checkout`, `git switch`, `git
+    reset`, `git restore`, `git clean`
+  - Branch or history modification: `git branch -d/-D`, `git merge`,
+    `git rebase`, `git cherry-pick`, `git tag`, `git stash`
+
+*Rule:* If you need to inspect repository state, use only the allowed
+ read-only commands. File edits should be handled through normal file
+ system modifications—never stage or commit them.
+
+---
+
+## 6. Development & Testing Instructions
 
 - **Binary Serialization**: TypeScript (`DataView`) and Python
     (`struct.Struct("!BBHIIH")`) codecs MUST maintain 100% binary

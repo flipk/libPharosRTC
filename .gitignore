@@ -9,11 +9,6 @@ cscope.out
 /README.html
 /REQUIRED.html
 
-/archive/BENCHMARK_REPORT.html
-/archive/CHAT.html
-/archive/PLAN.html
-/archive/IMPLEMENT_LOG.html
-
 # Node.js & TypeScript
 node_modules/
 dist/

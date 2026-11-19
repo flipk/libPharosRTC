@@ -3,6 +3,7 @@ import time
 from typing import Callable, Dict, List, Optional, Union
 
 from config import DEFAULT_CHANNELS, ChannelConfig, DeliveryMode, LinkConfig
+from fec_engine import FecDecoder, FecEncoder, FLAG_FEC_PARITY
 from frame_codec import (
     FLAG_ACK_ONLY,
     FLAG_MSG_END,
@@ -21,6 +22,9 @@ class ArqStats:
     rtt_var_ms: float
     current_rto_ms: float
     estimated_packet_loss: float
+    fec_parity_tx: int = 0
+    fec_parity_rx: int = 0
+    fec_recoveries: int = 0
 
 @dataclass
 class SentSlot:
@@ -60,6 +64,13 @@ class ArqEngine:
         self.rx_frames: Dict[int, int] = {}
         self.retransmissions: Dict[int, int] = {}
 
+        self.fec_encoder = FecEncoder(link_config.fec_xor_group)
+        self.fec_decoder = FecDecoder(link_config.fec_xor_group)
+        self.fec_parity_tx: Dict[int, int] = {}
+        self.fec_parity_rx: Dict[int, int] = {}
+        self.fec_recoveries: Dict[int, int] = {}
+        self.last_retransmit_ts: Dict[int, float] = {}
+
         self.message_callbacks: List[MessageCallback] = []
 
         for cfg in cfgs:
@@ -77,6 +88,10 @@ class ArqEngine:
             self.tx_frames[cfg.id] = 0
             self.rx_frames[cfg.id] = 0
             self.retransmissions[cfg.id] = 0
+            self.fec_parity_tx[cfg.id] = 0
+            self.fec_parity_rx[cfg.id] = 0
+            self.fec_recoveries[cfg.id] = 0
+            self.last_retransmit_ts[cfg.id] = 0.0
 
         self.scheduler = PriorityScheduler(link_config, channel_configs)
 
@@ -108,6 +123,9 @@ class ArqEngine:
             rtt_var_ms=state.rttvar if state else 0.0,
             current_rto_ms=state.rto if state else float(self.link_config.initial_rto_ms),
             estimated_packet_loss=loss,
+            fec_parity_tx=self.fec_parity_tx.get(chid, 0),
+            fec_parity_rx=self.fec_parity_rx.get(chid, 0),
+            fec_recoveries=self.fec_recoveries.get(chid, 0),
         )
 
     def dequeue_next_frame(
@@ -128,9 +146,11 @@ class ArqEngine:
             cfg
             and cfg.mode == DeliveryMode.RELIABLE_ORDERED
             and (frame.header.flags & FLAG_ACK_ONLY) == 0
+            and (frame.header.ack_chid & FLAG_FEC_PARITY) == 0
         ):
             seq_map = self.sent_slots[chid]
-            if frame.header.sequence_number not in seq_map:
+            is_new_data_frame = frame.header.sequence_number not in seq_map
+            if is_new_data_frame:
                 seq_map[frame.header.sequence_number] = SentSlot(
                     seq=frame.header.sequence_number,
                     frame=frame,
@@ -139,6 +159,12 @@ class ArqEngine:
                     retransmit_count=0,
                     acked=False,
                 )
+
+                if self.link_config.fec_xor_group > 0:
+                    parity_frame = self.fec_encoder.add_data_frame(frame)
+                    if parity_frame is not None:
+                        self.fec_parity_tx[chid] = self.fec_parity_tx.get(chid, 0) + 1
+                        self.scheduler.enqueue_retransmission(chid, parity_frame)
 
         return frame
 
@@ -158,6 +184,7 @@ class ArqEngine:
                 if not slot.acked and (now - slot.last_sent_ts >= rto):
                     slot.retransmit_count += 1
                     slot.last_sent_ts = now
+                    self.last_retransmit_ts[chid] = now
                     self.retransmissions[chid] = self.retransmissions.get(chid, 0) + 1
                     self.scheduler.enqueue_retransmission(chid, slot.frame)
 
@@ -168,15 +195,26 @@ class ArqEngine:
 
         # Process piggybacked ACK
         self._process_ack(
-            frame.header.ack_chid,
+            frame.header.ack_chid & 0x7F,
             frame.header.cumulative_ack_seq,
             frame.header.sack_mask,
             timestamp,
         )
 
+        if (frame.header.ack_chid & FLAG_FEC_PARITY) != 0:
+            self.fec_parity_rx[chid] = self.fec_parity_rx.get(chid, 0) + 1
+            recovered_frame = self.fec_decoder.process_parity_frame(frame)
+            if recovered_frame is not None:
+                self.fec_recoveries[chid] = self.fec_recoveries.get(chid, 0) + 1
+                self.on_wire_frame(recovered_frame, now=timestamp)
+            return
+
         # Standalone ACK check
         if (frame.header.flags & FLAG_ACK_ONLY) != 0:
             return
+
+        if self.link_config.fec_xor_group > 0:
+            self.fec_decoder.add_data_frame(frame)
 
         cfg = self.channel_configs.get(chid)
         if not cfg:
@@ -239,11 +277,17 @@ class ArqEngine:
         if not slots:
             return
 
+        max_acked_seq: Optional[int] = None
+
         for seq, slot in list(slots.items()):
             if slot.acked:
+                if max_acked_seq is None or seq_less_than(max_acked_seq, seq):
+                    max_acked_seq = seq
                 continue
 
             is_acked = False
+            is_sack = False
+
             # Cumulative ACK: seq <= cum_ack_seq
             if not seq_less_than(cum_ack_seq, seq):
                 is_acked = True
@@ -253,15 +297,43 @@ class ArqEngine:
                 if 0 <= diff < 16:
                     if (sack_mask & (1 << diff)) != 0:
                         is_acked = True
+                        is_sack = True
 
             if is_acked:
                 slot.acked = True
                 self.scheduler.release_in_flight(ack_chid, 1)
+                self.scheduler.remove_acked_retransmission(ack_chid, seq)
 
-                # Karn's algorithm: update RTO on clean (non-retransmitted) frames only
+                if max_acked_seq is None or seq_less_than(max_acked_seq, seq):
+                    max_acked_seq = seq
+
+                # Karn's algorithm: update RTO on clean (non-retransmitted) frames only.
+                # If ACKed cumulatively (not direct SACK), ensure it was sent after or at the last retransmission,
+                # so its ACK was not delayed by head-of-line blocking.
                 if slot.retransmit_count == 0:
-                    rtt = max(1.0, now - slot.first_sent_ts)
-                    self._update_rto(ack_chid, rtt)
+                    last_retx = self.last_retransmit_ts.get(ack_chid, 0.0)
+                    if is_sack or slot.first_sent_ts >= last_retx:
+                        rtt = max(1.0, now - slot.first_sent_ts)
+                        self._update_rto(ack_chid, rtt)
+
+        # Fast Retransmit: if 3 or more packets above an unacked slot have been ACKed/SACKed
+        if max_acked_seq is not None:
+            rto_half = self.get_rto(ack_chid) / 2.0
+            for seq, slot in list(slots.items()):
+                if not slot.acked and seq_less_than(seq, max_acked_seq):
+                    sacked_above = 0
+                    for other_seq, other_slot in slots.items():
+                        if other_slot.acked and seq_less_than(seq, other_seq):
+                            sacked_above += 1
+                            if sacked_above >= 3:
+                                break
+
+                    if sacked_above >= 3 and (slot.retransmit_count == 0 or now - slot.last_sent_ts >= rto_half):
+                        slot.retransmit_count += 1
+                        slot.last_sent_ts = now
+                        self.last_retransmit_ts[ack_chid] = now
+                        self.retransmissions[ack_chid] = self.retransmissions.get(ack_chid, 0) + 1
+                        self.scheduler.enqueue_retransmission(ack_chid, slot.frame)
 
         # Clean up acked slots
         for seq in list(slots.keys()):

@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from pathlib import Path
+import re
 import time
 from typing import Callable, Dict, List, Optional, Union
 
@@ -13,6 +14,14 @@ from config import DEFAULT_CHANNELS, ChannelConfig, LinkConfig, TERRESTRIAL_HIGH
 from frame_codec import decode_frame, encode_frame, Frame
 
 logger = logging.getLogger("webrtc_backend")
+
+def sanitize_sdp_offer(sdp: str, client_ip: str = "127.0.0.1") -> str:
+    if not sdp or ".local" not in sdp:
+        return sdp
+
+    lines = sdp.splitlines()
+    filtered = [l for l in lines if not ("a=candidate:" in l and ".local" in l)]
+    return "\r\n".join(filtered) + "\r\n"
 
 def get_or_create_ecdsa_certificate(
     cert_path: str = "/tmp/webrtc_cert.pem",
@@ -97,7 +106,7 @@ class WebRtcBackend:
     def get_stats(self, chid: int) -> ArqStats:
         return self.arq_engine.get_stats(chid)
 
-    async def handle_offer(self, offer_sdp: str) -> str:
+    async def handle_offer(self, offer_sdp: str, client_ip: str = "127.0.0.1") -> str:
         # Session Preemption: tear down old connection and reset ARQ state
         await self.close_active_session()
 
@@ -106,12 +115,13 @@ class WebRtcBackend:
         self.arq_engine.on_message(self._handle_arq_message)
 
         cert = get_or_create_ecdsa_certificate(self.cert_path, self.key_path)
-        pc = RTCPeerConnection()
+        pc = RTCPeerConnection(RTCConfiguration(iceServers=[]))
         setattr(pc, "_RTCPeerConnection__certificates", [cert])
         self.current_pc = pc
 
         @pc.on("datachannel")
         def on_datachannel(channel):
+            logger.info(f"[{time.time():.3f}] DataChannel opened on server: {channel.label}")
             self.current_channel = channel
 
             @channel.on("message")
@@ -126,11 +136,12 @@ class WebRtcBackend:
 
         @pc.on("connectionstatechange")
         async def on_state_change():
-            logger.info(f"WebRTC connection state: {pc.connectionState}")
+            logger.info(f"[{time.time():.3f}] WebRTC connection state: {pc.connectionState}")
             if pc.connectionState in ["failed", "closed", "disconnected"]:
                 pass
 
-        offer = RTCSessionDescription(sdp=offer_sdp, type="offer")
+        sanitized_sdp = sanitize_sdp_offer(offer_sdp, client_ip)
+        offer = RTCSessionDescription(sdp=sanitized_sdp, type="offer")
         await pc.setRemoteDescription(offer)
 
         answer = await pc.createAnswer()

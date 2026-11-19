@@ -1,7 +1,7 @@
 import struct
 from typing import Dict, List, Optional, Tuple, Union
 
-from frame_codec import FLAG_ACK_ONLY, PROTOCOL_VERSION, Frame, FrameHeader
+from frame_codec import FLAG_ACK_ONLY, FLAG_MSG_END, PROTOCOL_VERSION, Frame, FrameHeader
 
 FLAG_FEC_PARITY = 0x80
 
@@ -19,17 +19,40 @@ def xor_buffers(buffers: List[Union[bytes, bytearray, memoryview]]) -> bytes:
 
     return bytes(result)
 
-def encode_parity_payload(group_seq_start: int, group_size: int, parity_bytes: bytes) -> bytes:
-    header = struct.pack("!IH", group_seq_start & 0xFFFFFFFF, group_size & 0xFFFF)
-    return header + parity_bytes
+def encode_parity_payload(
+    group_seq_start: int,
+    group_size: int,
+    parity_bytes: bytes,
+    flags_mask: int = 0,
+    end_lengths: Optional[Dict[int, int]] = None,
+) -> bytes:
+    hdr = struct.pack("!IHH", group_seq_start & 0xFFFFFFFF, group_size & 0xFFFF, flags_mask & 0xFFFF)
+    lengths_bytes = bytearray()
+    if end_lengths:
+        for i in range(group_size):
+            if (flags_mask & (1 << i)) != 0:
+                l = end_lengths.get(i, 0)
+                lengths_bytes += struct.pack("!H", l & 0xFFFF)
+    return hdr + bytes(lengths_bytes) + parity_bytes
 
-def decode_parity_payload(payload: Union[bytes, bytearray, memoryview]) -> Tuple[int, int, bytes]:
+def decode_parity_payload(payload: Union[bytes, bytearray, memoryview]) -> Tuple[int, int, bytes, int, Dict[int, int]]:
     mv = memoryview(payload)
     if len(mv) < 6:
         raise ValueError("Parity payload buffer too short")
-    group_seq_start, group_size = struct.unpack("!IH", mv[:6])
-    parity_bytes = bytes(mv[6:])
-    return group_seq_start, group_size, parity_bytes
+    group_seq_start, group_size = struct.unpack_from("!IH", mv, 0)
+    flags_mask = 0
+    end_lengths: Dict[int, int] = {}
+    offset = 6
+    if len(mv) >= 8:
+        flags_mask = struct.unpack_from("!H", mv, 6)[0]
+        offset = 8
+        for i in range(group_size):
+            if (flags_mask & (1 << i)) != 0:
+                if offset + 2 <= len(mv):
+                    end_lengths[i] = struct.unpack_from("!H", mv, offset)[0]
+                    offset += 2
+    parity_bytes = bytes(mv[offset:])
+    return group_seq_start, group_size, parity_bytes, flags_mask, end_lengths
 
 class FecEncoder:
     def __init__(self, group_size: int):
@@ -40,6 +63,9 @@ class FecEncoder:
         if self.group_size <= 0:
             return None
 
+        if self.current_group and self.current_group[0].header.chid != frame.header.chid:
+            self.current_group.clear()
+
         self.current_group.append(frame)
 
         if len(self.current_group) >= self.group_size:
@@ -47,7 +73,14 @@ class FecEncoder:
             payloads = [bytes(f.payload) for f in self.current_group]
             parity_bytes = xor_buffers(payloads)
 
-            parity_payload = encode_parity_payload(group_seq_start, self.group_size, parity_bytes)
+            flags_mask = 0
+            end_lengths: Dict[int, int] = {}
+            for i, f in enumerate(self.current_group):
+                if (f.header.flags & FLAG_MSG_END) != 0:
+                    flags_mask |= (1 << i)
+                    end_lengths[i] = f.header.payload_length
+
+            parity_payload = encode_parity_payload(group_seq_start, self.group_size, parity_bytes, flags_mask, end_lengths)
             last_frame_header = self.current_group[-1].header
 
             parity_frame = Frame(
@@ -83,11 +116,21 @@ class FecDecoder:
             self.received_groups[group_seq_start] = {}
         self.received_groups[group_seq_start][seq] = frame
 
+        # If group is complete, all data frames arrived; no parity recovery needed
+        if len(self.received_groups[group_seq_start]) >= self.group_size:
+            del self.received_groups[group_seq_start]
+
+        # Prune old incomplete groups to prevent memory leakage
+        if len(self.received_groups) > 64:
+            oldest_keys = sorted(self.received_groups.keys(), key=lambda k: (k - seq) & 0xFFFFFFFF)
+            for old_key in oldest_keys[: len(self.received_groups) - 32]:
+                del self.received_groups[old_key]
+
     def process_parity_frame(self, parity_frame: Frame) -> Optional[Frame]:
         if self.group_size <= 0:
             return None
 
-        group_seq_start, group_size, parity_bytes = decode_parity_payload(parity_frame.payload)
+        group_seq_start, group_size, parity_bytes, flags_mask, end_lengths = decode_parity_payload(parity_frame.payload)
         group_map = self.received_groups.get(group_seq_start, {})
 
         missing_seqs = []
@@ -98,6 +141,7 @@ class FecDecoder:
 
         if len(missing_seqs) == 1:
             missing_seq = missing_seqs[0]
+            missing_idx = (missing_seq - group_seq_start) & 0xFFFFFFFF
             present_frames = list(group_map.values())
             if not present_frames:
                 return None
@@ -107,12 +151,19 @@ class FecDecoder:
             recovered_full_payload = xor_buffers(all_buffers)
 
             template_header = present_frames[0].header
-            recovered_payload = recovered_full_payload[: template_header.payload_length]
+            has_msg_end = (flags_mask & (1 << missing_idx)) != 0
+            recovered_flags = FLAG_MSG_END if has_msg_end else 0
+            recovered_len = (
+                end_lengths.get(missing_idx, len(parity_bytes))
+                if has_msg_end
+                else max(len(parity_bytes), max(f.header.payload_length for f in present_frames))
+            )
+            recovered_payload = recovered_full_payload[:recovered_len]
 
             recovered_frame = Frame(
                 header=FrameHeader(
                     version=template_header.version,
-                    flags=template_header.flags,
+                    flags=recovered_flags,
                     chid=template_header.chid,
                     ack_chid=template_header.ack_chid,
                     payload_length=len(recovered_payload),
@@ -124,6 +175,8 @@ class FecDecoder:
             )
 
             group_map[missing_seq] = recovered_frame
+            if group_seq_start in self.received_groups:
+                del self.received_groups[group_seq_start]
             return recovered_frame
 
         return None

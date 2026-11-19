@@ -12,9 +12,20 @@ export class WebRtcTransport {
   private openCallbacks: ChannelOpenCallback[] = [];
   private stateCallbacks: ConnectionStateCallback[] = [];
 
+  private inboundFilter: ((data: ArrayBuffer) => boolean) | null = null;
+  private outboundFilter: ((data: ArrayBuffer | Uint8Array) => boolean) | null = null;
+
   private signalingClient: SignalingClient | null = null;
 
   constructor() {}
+
+  public setInboundFilter(filter: ((data: ArrayBuffer) => boolean) | null): void {
+    this.inboundFilter = filter;
+  }
+
+  public setOutboundFilter(filter: ((data: ArrayBuffer | Uint8Array) => boolean) | null): void {
+    this.outboundFilter = filter;
+  }
 
   public async startNegotiation(signalingClient: SignalingClient): Promise<void> {
     this.signalingClient = signalingClient;
@@ -36,6 +47,9 @@ export class WebRtcTransport {
 
     this.channel.onmessage = (event: MessageEvent) => {
       if (event.data instanceof ArrayBuffer) {
+        if (this.inboundFilter && !this.inboundFilter(event.data)) {
+          return; // Dropped by impairment filter
+        }
         this.wireFrameCallbacks.forEach((cb) => cb(event.data));
       }
     };
@@ -54,15 +68,25 @@ export class WebRtcTransport {
       }
     };
 
-    this.pc.onicecandidate = (event) => {
-      if (event.candidate === null && this.pc) {
-        // ICE gathering complete -> send offer
-        const offer = this.pc.localDescription;
-        if (offer) {
-          signalingClient.sendOffer(offer.sdp);
-        }
+    let offerSent = false;
+    const sendOfferNow = () => {
+      if (offerSent || !this.pc) return;
+      offerSent = true;
+      const offer = this.pc.localDescription;
+      if (offer) {
+        signalingClient.sendOffer(offer.sdp);
       }
     };
+
+    this.pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        setTimeout(sendOfferNow, 30);
+      } else {
+        sendOfferNow();
+      }
+    };
+
+    setTimeout(sendOfferNow, 150);
 
     signalingClient.onAnswer((answerSdp: string) => {
       if (this.pc && (this.pc.signalingState === 'have-local-offer' || this.pc.signalingState === 'stable')) {
@@ -76,6 +100,9 @@ export class WebRtcTransport {
 
   public sendWireFrame(data: ArrayBuffer | Uint8Array): boolean {
     if (this.channel && this.channel.readyState === 'open') {
+      if (this.outboundFilter && !this.outboundFilter(data)) {
+        return true; // Dropped by impairment filter
+      }
       try {
         this.channel.send(data as any);
         return true;

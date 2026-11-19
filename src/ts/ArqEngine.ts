@@ -1,4 +1,5 @@
 import { LinkConfig, ChannelConfig, DEFAULT_CHANNELS, DeliveryMode } from './config';
+import { FecEncoder, FecDecoder, FLAG_FEC_PARITY } from './FecEngine';
 import {
   Frame,
   FrameHeader,
@@ -19,6 +20,9 @@ export interface ArqStats {
   rttVarMs: number;
   currentRtoMs: number;
   estimatedPacketLoss: number;
+  fecParityTx: number;
+  fecParityRx: number;
+  fecRecoveries: number;
 }
 
 export type MessageCallback = (chid: number, payload: Uint8Array) => void;
@@ -54,6 +58,13 @@ export class ArqEngine {
   private rxFrames: Map<number, number>;
   private retransmissions: Map<number, number>;
 
+  private fecEncoder: FecEncoder;
+  private fecDecoder: FecDecoder;
+  private fecParityTx: Map<number, number>;
+  private fecParityRx: Map<number, number>;
+  private fecRecoveries: Map<number, number>;
+  private lastRetransmitTs: Map<number, number>;
+
   private messageCallbacks: MessageCallback[] = [];
 
   constructor(
@@ -71,6 +82,13 @@ export class ArqEngine {
     this.rxFrames = new Map();
     this.retransmissions = new Map();
 
+    this.fecEncoder = new FecEncoder(linkConfig.fecXorGroup);
+    this.fecDecoder = new FecDecoder(linkConfig.fecXorGroup);
+    this.fecParityTx = new Map();
+    this.fecParityRx = new Map();
+    this.fecRecoveries = new Map();
+    this.lastRetransmitTs = new Map();
+
     for (const cfg of channelConfigs) {
       this.channelConfigs.set(cfg.id, cfg);
       this.sentSlots.set(cfg.id, new Map());
@@ -86,6 +104,10 @@ export class ArqEngine {
       this.txFrames.set(cfg.id, 0);
       this.rxFrames.set(cfg.id, 0);
       this.retransmissions.set(cfg.id, 0);
+      this.fecParityTx.set(cfg.id, 0);
+      this.fecParityRx.set(cfg.id, 0);
+      this.fecRecoveries.set(cfg.id, 0);
+      this.lastRetransmitTs.set(cfg.id, 0);
     }
 
     this.scheduler = new PriorityScheduler(linkConfig, channelConfigs);
@@ -122,6 +144,9 @@ export class ArqEngine {
       rttVarMs: rto?.rttvar ?? 0,
       currentRtoMs: rto?.rto ?? this.linkConfig.initialRtoMs,
       estimatedPacketLoss: loss,
+      fecParityTx: this.fecParityTx.get(chid) ?? 0,
+      fecParityRx: this.fecParityRx.get(chid) ?? 0,
+      fecRecoveries: this.fecRecoveries.get(chid) ?? 0,
     };
   }
 
@@ -139,10 +164,12 @@ export class ArqEngine {
     if (
       cfg &&
       cfg.mode === DeliveryMode.RELIABLE_ORDERED &&
-      (frame.header.flags & FLAG_ACK_ONLY) === 0
+      (frame.header.flags & FLAG_ACK_ONLY) === 0 &&
+      (frame.header.ackChid & FLAG_FEC_PARITY) === 0
     ) {
       const seqMap = this.sentSlots.get(chid)!;
-      if (!seqMap.has(frame.header.sequenceNumber)) {
+      const isNewDataFrame = !seqMap.has(frame.header.sequenceNumber);
+      if (isNewDataFrame) {
         seqMap.set(frame.header.sequenceNumber, {
           seq: frame.header.sequenceNumber,
           frame,
@@ -151,6 +178,14 @@ export class ArqEngine {
           retransmitCount: 0,
           acked: false,
         });
+
+        if (this.linkConfig.fecXorGroup > 0) {
+          const parityFrame = this.fecEncoder.addDataFrame(frame);
+          if (parityFrame) {
+            this.fecParityTx.set(chid, (this.fecParityTx.get(chid) ?? 0) + 1);
+            this.scheduler.enqueueRetransmission(chid, parityFrame);
+          }
+        }
       }
     }
 
@@ -173,6 +208,7 @@ export class ArqEngine {
         if (!slot.acked && now - slot.lastSentTs >= rto) {
           slot.retransmitCount++;
           slot.lastSentTs = now;
+          this.lastRetransmitTs.set(chid, now);
           this.retransmissions.set(chid, (this.retransmissions.get(chid) ?? 0) + 1);
           this.scheduler.enqueueRetransmission(chid, slot.frame);
         }
@@ -186,11 +222,25 @@ export class ArqEngine {
     this.rxFrames.set(chid, (this.rxFrames.get(chid) ?? 0) + 1);
 
     // Process piggybacked ACK
-    this.processAck(frame.header.ackChid, frame.header.cumulativeAckSeq, frame.header.sackMask, timestamp);
+    this.processAck(frame.header.ackChid & 0x7f, frame.header.cumulativeAckSeq, frame.header.sackMask, timestamp);
+
+    if ((frame.header.ackChid & FLAG_FEC_PARITY) !== 0) {
+      this.fecParityRx.set(chid, (this.fecParityRx.get(chid) ?? 0) + 1);
+      const recoveredFrame = this.fecDecoder.processParityFrame(frame);
+      if (recoveredFrame) {
+        this.fecRecoveries.set(chid, (this.fecRecoveries.get(chid) ?? 0) + 1);
+        this.onWireFrame(recoveredFrame, timestamp);
+      }
+      return;
+    }
 
     // If ACK-ONLY, nothing more to process
     if ((frame.header.flags & FLAG_ACK_ONLY) !== 0) {
       return;
+    }
+
+    if (this.linkConfig.fecXorGroup > 0) {
+      this.fecDecoder.addDataFrame(frame);
     }
 
     const cfg = this.channelConfigs.get(chid);
@@ -258,10 +308,19 @@ export class ArqEngine {
     const slots = this.sentSlots.get(ackChid);
     if (!slots) return;
 
+    let maxAckedSeq: number | null = null;
+
     for (const [seq, slot] of slots.entries()) {
-      if (slot.acked) continue;
+      if (slot.acked) {
+        if (maxAckedSeq === null || seqLessThan(maxAckedSeq, seq)) {
+          maxAckedSeq = seq;
+        }
+        continue;
+      }
 
       let isAcked = false;
+      let isSack = false;
+
       // Cumulative ACK check: seq <= cumAckSeq in 32-bit serial arithmetic
       if (!seqLessThan(cumAckSeq, seq)) {
         isAcked = true;
@@ -271,6 +330,7 @@ export class ArqEngine {
         if (diff >= 0 && diff < 16) {
           if ((sackMask & (1 << diff)) !== 0) {
             isAcked = true;
+            isSack = true;
           }
         }
       }
@@ -278,11 +338,43 @@ export class ArqEngine {
       if (isAcked) {
         slot.acked = true;
         this.scheduler.releaseInFlight(ackChid, 1);
+        this.scheduler.removeAckedRetransmission(ackChid, seq);
+
+        if (maxAckedSeq === null || seqLessThan(maxAckedSeq, seq)) {
+          maxAckedSeq = seq;
+        }
 
         // Jacobson/Karels RTO update on clean (non-retransmitted) samples only
         if (slot.retransmitCount === 0) {
-          const rtt = Math.max(1, now - slot.firstSentTs);
-          this.updateRto(ackChid, rtt);
+          const lastRetx = this.lastRetransmitTs.get(ackChid) ?? 0;
+          if (isSack || slot.firstSentTs >= lastRetx) {
+            const rtt = Math.max(1, now - slot.firstSentTs);
+            this.updateRto(ackChid, rtt);
+          }
+        }
+      }
+    }
+
+    // Fast Retransmit: if 3 or more packets above an unacked slot have been ACKed/SACKed
+    if (maxAckedSeq !== null) {
+      const rtoHalf = this.getRto(ackChid) / 2;
+      for (const [seq, slot] of slots.entries()) {
+        if (!slot.acked && seqLessThan(seq, maxAckedSeq)) {
+          let sackedAbove = 0;
+          for (const [otherSeq, otherSlot] of slots.entries()) {
+            if (otherSlot.acked && seqLessThan(seq, otherSeq)) {
+              sackedAbove++;
+              if (sackedAbove >= 3) break;
+            }
+          }
+
+          if (sackedAbove >= 3 && (slot.retransmitCount === 0 || now - slot.lastSentTs >= rtoHalf)) {
+            slot.retransmitCount++;
+            slot.lastSentTs = now;
+            this.lastRetransmitTs.set(ackChid, now);
+            this.retransmissions.set(ackChid, (this.retransmissions.get(ackChid) ?? 0) + 1);
+            this.scheduler.enqueueRetransmission(ackChid, slot.frame);
+          }
         }
       }
     }

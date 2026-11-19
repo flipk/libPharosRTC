@@ -107,14 +107,15 @@ describe('ArqEngine (TypeScript)', () => {
     while ((f = sender.dequeueNextFrame(0)) !== null) {
       frames.push(f);
     }
-    expect(frames.length).toBe(5); // 206*4 + 176 = 1000
+    const dataFrames = frames.filter((fr) => (fr.header.ackChid & 0x80) === 0);
+    expect(dataFrames.length).toBe(5); // 206*4 + 176 = 1000
 
     // Pass frames in scrambled order: 0, 2, 4, 1, 3
-    receiver.onWireFrame(frames[0], 0);
-    receiver.onWireFrame(frames[2], 0);
-    receiver.onWireFrame(frames[4], 0);
-    receiver.onWireFrame(frames[1], 0);
-    receiver.onWireFrame(frames[3], 0);
+    receiver.onWireFrame(dataFrames[0], 0);
+    receiver.onWireFrame(dataFrames[2], 0);
+    receiver.onWireFrame(dataFrames[4], 0);
+    receiver.onWireFrame(dataFrames[1], 0);
+    receiver.onWireFrame(dataFrames[3], 0);
 
     expect(receivedMsgs.length).toBe(1);
     expect(receivedMsgs[0]).toEqual(largePayload);

@@ -54,11 +54,11 @@ export class PriorityScheduler {
   }
 
   public canSend(bufferedAmount: number): boolean {
-    return bufferedAmount < 4 * this.linkConfig.appMtuBytes;
+    return bufferedAmount < this.getLowWaterMark();
   }
 
   public getLowWaterMark(): number {
-    return 4 * this.linkConfig.appMtuBytes;
+    return 64 * this.linkConfig.appMtuBytes;
   }
 
   public enqueueMessage(chid: number, payload: Uint8Array, extraFlags: number = 0): number[] {
@@ -220,7 +220,8 @@ export class PriorityScheduler {
 
   private applyPiggybackedAck(frame: Frame): void {
     if (this.pendingAck.hasAck) {
-      frame.header.ackChid = this.pendingAck.ackChid;
+      const parityFlag = frame.header.ackChid & 0x80;
+      frame.header.ackChid = (this.pendingAck.ackChid & 0x7f) | parityFlag;
       frame.header.cumulativeAckSeq = this.pendingAck.cumAckSeq;
       frame.header.sackMask = this.pendingAck.sackMask;
       this.pendingAck.hasAck = false;
@@ -230,6 +231,16 @@ export class PriorityScheduler {
   public releaseInFlight(chid: number, count: number = 1): void {
     const current = this.inFlightCounts.get(chid) ?? 0;
     this.inFlightCounts.set(chid, Math.max(0, current - count));
+  }
+
+  public removeAckedRetransmission(chid: number, seq: number): void {
+    const queue = this.retransmitQueues.get(chid);
+    if (queue && queue.length > 0) {
+      this.retransmitQueues.set(
+        chid,
+        queue.filter((f) => f.header.sequenceNumber !== seq)
+      );
+    }
   }
 
   public getInFlightCount(chid: number): number {

@@ -53,7 +53,7 @@ export interface BlobState {
 }
 
 export class ArqWorkerHandler {
-  private arqEngine: ArqEngine;
+  private arqEngine!: ArqEngine;
   private postMessageCb: (msg: any) => void;
   private timerId: any = null;
   private activeBlobs: BlobState[] = [];
@@ -64,15 +64,7 @@ export class ArqWorkerHandler {
     channelConfigs: ChannelConfig[] = [...DEFAULT_CHANNELS]
   ) {
     this.postMessageCb = postMessageCb;
-    this.arqEngine = new ArqEngine(linkConfig, channelConfigs);
-    this.arqEngine.onMessage((chid, payload) => {
-      const ab = payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength);
-      this.postMessageCb({
-        type: 'messageReceived',
-        chid,
-        payload: ab,
-      });
-    });
+    this.init(linkConfig, channelConfigs);
   }
 
   public init(linkConfig?: LinkConfig, channelConfigs?: ChannelConfig[]): void {
@@ -177,9 +169,9 @@ export class ArqWorkerHandler {
     }
   }
 
-  public drainOutbound(now?: number): void {
+  public drainOutbound(now?: number, bufferedAmount?: number): void {
     let frame: Frame | null;
-    while ((frame = this.arqEngine.dequeueNextFrame(now)) !== null) {
+    while ((frame = this.arqEngine.dequeueNextFrame(now, bufferedAmount)) !== null) {
       const buf = encodeFrame(frame);
       const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
       this.postMessageCb({
