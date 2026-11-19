@@ -30,6 +30,7 @@ const lossRadios = document.querySelectorAll<HTMLInputElement>('input[name="loss
 const transferDirection = document.getElementById('transferDirection') as HTMLSelectElement;
 const presetBtns = document.querySelectorAll<HTMLButtonElement>('.preset-btn');
 const filePicker = document.getElementById('filePicker') as HTMLInputElement;
+const currentSelectionText = document.getElementById('currentSelectionText') as HTMLElement;
 const btnStartTransfer = document.getElementById('btnStartTransfer') as HTMLButtonElement;
 const btnCancelTransfer = document.getElementById('btnCancelTransfer') as HTMLButtonElement;
 
@@ -79,23 +80,64 @@ function syncLossWithServer() {
   }
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes >= 1048576) {
+    const mb = bytes / 1048576;
+    return Number.isInteger(mb) ? `${mb} MB` : `${mb.toFixed(2)} MB`;
+  }
+  if (bytes >= 1024) {
+    const kb = bytes / 1024;
+    return Number.isInteger(kb) ? `${kb} KB` : `${kb.toFixed(1)} KB`;
+  }
+  return `${bytes} B`;
+}
+
+function updateSelectionDisplay() {
+  presetBtns.forEach((btn) => {
+    const size = parseInt(btn.dataset.size || '0', 10);
+    if (!localSelectedFile && size === selectedPresetSize) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+
+  if (localSelectedFile) {
+    filePicker.classList.add('file-selected');
+    const formattedSize = formatBytes(localSelectedFile.size);
+    if (currentSelectionText) {
+      currentSelectionText.textContent = `Custom File: ${localSelectedFile.name} (${formattedSize})`;
+    }
+  } else {
+    filePicker.classList.remove('file-selected');
+    const formattedSize = formatBytes(selectedPresetSize);
+    if (currentSelectionText) {
+      currentSelectionText.textContent = `${formattedSize} Synthetic Preset`;
+    }
+  }
+}
+
 // Preset button handlers
 presetBtns.forEach((btn) => {
   btn.addEventListener('click', () => {
-    presetBtns.forEach((b) => b.classList.remove('btn-primary'));
-    btn.classList.add('btn-primary');
     selectedPresetSize = parseInt(btn.dataset.size || '1048576', 10);
     filePicker.value = '';
     localSelectedFile = null;
+    updateSelectionDisplay();
   });
 });
 
 filePicker.addEventListener('change', () => {
   if (filePicker.files && filePicker.files[0]) {
     localSelectedFile = filePicker.files[0];
-    presetBtns.forEach((b) => b.classList.remove('btn-primary'));
+  } else {
+    localSelectedFile = null;
   }
+  updateSelectionDisplay();
 });
+
+// Initialize UI selection display
+updateSelectionDisplay();
 
 // Connect Button
 btnConnect.addEventListener('click', async () => {
@@ -108,6 +150,13 @@ btnConnect.addEventListener('click', async () => {
   const tStart = performance.now();
 
   client = new ResilientLinkClient(undefined, undefined, true); // WebWorker mode
+
+  // Listen for out-of-band server telemetry over WebSocket
+  client.getSignalingClient().onMessage((data: any) => {
+    if (data.type === 'server_telemetry' && data.stats) {
+      telemetryUI.updateServerStats(data.stats);
+    }
+  });
 
   // Set impairment filters on transport
   const transport = (client as any).transport;

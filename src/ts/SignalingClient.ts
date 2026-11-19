@@ -1,6 +1,7 @@
 export type AnswerCallback = (sdp: string) => void;
 export type ErrorCallback = (err: Error) => void;
 export type CloseCallback = () => void;
+export type SignalingMessageCallback = (data: any) => void;
 
 export interface SignalingClientOptions {
   autoReconnect?: boolean;
@@ -13,6 +14,7 @@ export class SignalingClient {
   private answerCallbacks: AnswerCallback[] = [];
   private errorCallbacks: ErrorCallback[] = [];
   private closeCallbacks: CloseCallback[] = [];
+  private messageCallbacks: SignalingMessageCallback[] = [];
   private autoReconnect: boolean;
   private reconnectIntervalMs: number;
   private isExplicitDisconnect: boolean = false;
@@ -60,6 +62,7 @@ export class SignalingClient {
           if (data.type === 'answer' && typeof data.sdp === 'string') {
             this.answerCallbacks.forEach((cb) => cb(data.sdp));
           }
+          this.messageCallbacks.forEach((cb) => cb(data));
         } catch {
           // ignore non-json messages
         }
@@ -76,6 +79,10 @@ export class SignalingClient {
 
   public onAnswer(cb: AnswerCallback): void {
     this.answerCallbacks.push(cb);
+  }
+
+  public onMessage(cb: SignalingMessageCallback): void {
+    this.messageCallbacks.push(cb);
   }
 
   public onError(cb: ErrorCallback): void {

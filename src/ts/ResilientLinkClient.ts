@@ -110,6 +110,10 @@ export class ResilientLinkClient {
     };
   }
 
+  public getSignalingClient(): SignalingClient {
+    return this.signalingClient;
+  }
+
   public disconnect(): void {
     this.signalingClient.disconnect();
     this.transport.close();

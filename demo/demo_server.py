@@ -192,6 +192,36 @@ class DemoServer:
         await ws.prepare(request)
         logger.info("New WebSocket connection established for WebRTC signaling.")
 
+        async def send_telemetry_loop():
+            try:
+                while not ws.closed:
+                    await asyncio.sleep(0.25)  # 250ms periodic telemetry push
+                    try:
+                        stats_chid2 = self.link.get_stats(2)
+                        payload = {
+                            "type": "server_telemetry",
+                            "stats": {
+                                "txFrames": stats_chid2.tx_frames,
+                                "rxFrames": stats_chid2.rx_frames,
+                                "retransmissions": stats_chid2.retransmissions,
+                                "smoothedRttMs": stats_chid2.smoothed_rtt_ms,
+                                "currentRtoMs": stats_chid2.current_rto_ms,
+                                "estimatedPacketLoss": stats_chid2.estimated_packet_loss,
+                                "fecParityTx": stats_chid2.fec_parity_tx,
+                                "fecParityRx": stats_chid2.fec_parity_rx,
+                                "fecRecoveries": stats_chid2.fec_recoveries,
+                                "simulatedOutboundLoss": server_loss_rate,
+                                "lossDirection": server_loss_dir,
+                            },
+                        }
+                        await ws.send_json(payload)
+                    except Exception:
+                        pass
+            except asyncio.CancelledError:
+                pass
+
+        telemetry_task = asyncio.create_task(send_telemetry_loop())
+
         try:
             async for msg in ws:
                 if msg.type == web.WSMsgType.TEXT:
@@ -212,6 +242,7 @@ class DemoServer:
                 elif msg.type == web.WSMsgType.ERROR:
                     logger.error(f"WebSocket error: {ws.exception()}")
         finally:
+            telemetry_task.cancel()
             logger.info("WebSocket connection closed.")
         return ws
 

@@ -7,7 +7,22 @@ export interface ExtendedTelemetryStats extends ArqStats {
   appMtu: number;
 }
 
+export interface ServerTelemetryStats {
+  txFrames: number;
+  rxFrames: number;
+  retransmissions: number;
+  smoothedRttMs: number;
+  currentRtoMs: number;
+  estimatedPacketLoss: number;
+  fecParityTx: number;
+  fecParityRx: number;
+  fecRecoveries: number;
+  simulatedOutboundLoss: number;
+  lossDirection: string;
+}
+
 export class TelemetryUI {
+  // Browser Client Elements
   private statTxEl = document.getElementById('statTx') as HTMLElement;
   private statRxEl = document.getElementById('statRx') as HTMLElement;
   private statRetxEl = document.getElementById('statRetx') as HTMLElement;
@@ -18,6 +33,18 @@ export class TelemetryUI {
   private statLossEl = document.getElementById('statLoss') as HTMLElement;
   private statMtuEl = document.getElementById('statMtu') as HTMLElement;
 
+  // Python Server Elements
+  private statServerTxEl = document.getElementById('statServerTx') as HTMLElement;
+  private statServerRxEl = document.getElementById('statServerRx') as HTMLElement;
+  private statServerRetxEl = document.getElementById('statServerRetx') as HTMLElement;
+  private statServerRetxRatioEl = document.getElementById('statServerRetxRatio') as HTMLElement;
+  private statServerRttEl = document.getElementById('statServerRtt') as HTMLElement;
+  private statServerRtoEl = document.getElementById('statServerRto') as HTMLElement;
+  private statServerLossEl = document.getElementById('statServerLoss') as HTMLElement;
+  private statServerParityFramesEl = document.getElementById('statServerParityFrames') as HTMLElement;
+  private statServerParityRecoveriesEl = document.getElementById('statServerParityRecoveries') as HTMLElement;
+
+  // FEC Parity Elements
   private statParityFramesEl = document.getElementById('statParityFrames') as HTMLElement;
   private statParityRecoveriesEl = document.getElementById('statParityRecoveries') as HTMLElement;
 
@@ -42,6 +69,31 @@ export class TelemetryUI {
 
     if (this.statParityRecoveriesEl) {
       this.statParityRecoveriesEl.textContent = stats.fecRecoveries.toString();
+    }
+  }
+
+  public updateServerStats(stats: ServerTelemetryStats): void {
+    if (this.statServerTxEl) this.statServerTxEl.textContent = stats.txFrames.toLocaleString();
+    if (this.statServerRxEl) this.statServerRxEl.textContent = stats.rxFrames.toLocaleString();
+    if (this.statServerRetxEl) this.statServerRetxEl.textContent = stats.retransmissions.toLocaleString();
+
+    const ratio = stats.txFrames > 0 ? (stats.retransmissions / stats.txFrames) * 100 : 0;
+    if (this.statServerRetxRatioEl) this.statServerRetxRatioEl.textContent = `${ratio.toFixed(1)}%`;
+
+    if (this.statServerRttEl) this.statServerRttEl.textContent = `${stats.smoothedRttMs.toFixed(1)} ms`;
+    if (this.statServerRtoEl) this.statServerRtoEl.textContent = `${stats.currentRtoMs.toFixed(1)} ms`;
+
+    const lossPct = stats.simulatedOutboundLoss * 100;
+    if (this.statServerLossEl) {
+      this.statServerLossEl.textContent = `${lossPct.toFixed(1)}% (${stats.lossDirection})`;
+    }
+
+    if (this.statServerParityFramesEl) {
+      this.statServerParityFramesEl.textContent = `${stats.fecParityTx} / ${stats.fecParityRx}`;
+    }
+
+    if (this.statServerParityRecoveriesEl) {
+      this.statServerParityRecoveriesEl.textContent = stats.fecRecoveries.toString();
     }
   }
 }

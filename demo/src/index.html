@@ -55,7 +55,7 @@
             <div class="field-group">
               <label>Presets:</label>
               <div class="btn-group">
-                <button class="btn btn-outline preset-btn" data-size="1048576">1 MB</button>
+                <button class="btn btn-outline preset-btn active" data-size="1048576">1 MB</button>
                 <button class="btn btn-outline preset-btn" data-size="5242880">5 MB</button>
                 <button class="btn btn-outline preset-btn" data-size="10485760">10 MB</button>
               </div>
@@ -64,6 +64,10 @@
               <label for="filePicker">Custom Local File:</label>
               <input type="file" id="filePicker" />
             </div>
+          </div>
+
+          <div class="selection-info-row">
+            <span>Selected Payload: <strong id="currentSelectionText">1 MB Synthetic Preset</strong></span>
           </div>
 
           <div class="action-row">
@@ -90,37 +94,37 @@
 
       <!-- TELEMETRY & METRICS DASHBOARD -->
       <section class="card telemetry-card">
-        <h2>Real-Time ARQ & FEC Telemetry Dashboard</h2>
-        <div class="grid-3">
-          <!-- ARQ Packet Counts -->
+        <div class="card-header-row">
+          <h2>Real-Time ARQ & FEC Telemetry Dashboard</h2>
+          <span class="badge badge-neutral">App-MTU Config: <strong id="statMtu">220 B</strong></span>
+        </div>
+        <div class="grid-2">
+          <!-- Browser Client Metrics -->
           <div class="metric-box">
-            <h3>ARQ Datagram Counters</h3>
+            <h3>Browser Client (TypeScript)</h3>
             <div class="metric-row"><span>TX Frames:</span><strong id="statTx">0</strong></div>
             <div class="metric-row"><span>RX Frames:</span><strong id="statRx">0</strong></div>
             <div class="metric-row"><span>Retransmissions:</span><strong id="statRetx">0</strong></div>
             <div class="metric-row"><span>Retransmit Ratio:</span><strong id="statRetxRatio">0.0%</strong></div>
-          </div>
-
-          <!-- RTT & Latency -->
-          <div class="metric-box">
-            <h3>Link Health & RTO</h3>
             <div class="metric-row"><span>Smoothed RTT:</span><strong id="statRtt">0.0 ms</strong></div>
             <div class="metric-row"><span>Adaptive RTO:</span><strong id="statRto">0.0 ms</strong></div>
-            <div class="metric-row"><span>Est. ARQ Loss:</span><strong id="statLoss">0.0%</strong></div>
-            <div class="metric-row"><span>App-MTU Config:</span><strong id="statMtu">220 B</strong></div>
+            <div class="metric-row"><span>Est. ARQ Loss Rate:</span><strong id="statLoss">0.0%</strong></div>
+            <div class="metric-row"><span>Parity Frames TX / RX:</span><strong id="statParityFrames">0 / 0</strong></div>
+            <div class="metric-row text-highlight"><span>XOR Parity Recoveries:</span><strong id="statParityRecoveries" class="pulse-val">0</strong></div>
           </div>
 
-          <!-- FEC Parity Stats -->
-          <div class="metric-box highlight-box">
-            <h3>FEC Parity & Loss Recovery</h3>
-            <div class="metric-row"><span>Parity Frames TX/RX:</span><strong id="statParityFrames">0 / 0</strong></div>
-            <div class="metric-row text-highlight">
-              <span>XOR Parity Recoveries:</span>
-              <strong id="statParityRecoveries" class="pulse-val">0</strong>
-            </div>
-            <div class="metric-subtext">
-              (Count of lost data frames reconstituted instantly via XOR parity without ARQ retransmission)
-            </div>
+          <!-- Python Server Metrics -->
+          <div class="metric-box">
+            <h3>Embedded Server (Python)</h3>
+            <div class="metric-row"><span>TX Frames:</span><strong id="statServerTx">0</strong></div>
+            <div class="metric-row"><span>RX Frames:</span><strong id="statServerRx">0</strong></div>
+            <div class="metric-row"><span>Retransmissions:</span><strong id="statServerRetx">0</strong></div>
+            <div class="metric-row"><span>Retransmit Ratio:</span><strong id="statServerRetxRatio">0.0%</strong></div>
+            <div class="metric-row"><span>Smoothed RTT:</span><strong id="statServerRtt">0.0 ms</strong></div>
+            <div class="metric-row"><span>Adaptive RTO:</span><strong id="statServerRto">0.0 ms</strong></div>
+            <div class="metric-row"><span>Outbound Loss Rate:</span><strong id="statServerLoss">0.0%</strong></div>
+            <div class="metric-row"><span>Parity Frames TX / RX:</span><strong id="statServerParityFrames">0 / 0</strong></div>
+            <div class="metric-row text-highlight"><span>XOR Parity Recoveries:</span><strong id="statServerParityRecoveries" class="pulse-val">0</strong></div>
           </div>
         </div>
       </section>
