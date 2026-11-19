@@ -29,13 +29,13 @@ Upon starting, `demo_server.py` logs the connection URL clearly to `stdout`:
 
 ```text
 ====================================================================
- PharosRTC Demo Server Running
- Open Chrome or your browser at:
+ PharosRTC Interactive Lossy Link Demo Server
+ Open Chrome or your web browser at:
    --> http://127.0.0.1:2500
 ====================================================================
-[INFO] Serving WebRTC Signaling at ws://127.0.0.1:2500/ws/webrtc
-[INFO] Link Profile: TERRESTRIAL_HIGH_BER_PROFILE (MTU: 220B, App-MTU Payload: 206B)
-[READY] Press Ctrl+C to stop.
+[INFO] WebRTC Signaling Endpoint: ws://127.0.0.1:2500/ws/webrtc
+[INFO] Profile: TERRESTRIAL | Static Dir: /path/to/libPharosRTC/demo/static
+[READY] Server running. Press Ctrl+C to exit.
 ```
 
 ---
@@ -95,7 +95,7 @@ The demo supports robust file transfer stress testing over high-BER / lossy envi
   - The UI displays a green **"PASS - SHA-256 Verified"** badge upon byte-exact reconstruction, proving 100% loss-free ARQ recovery over lossy datagrams.
 
 ### 4.3 ARQ & FEC Parity Telemetry Dashboard
-The UI polls stats every **100ms** from both the client and server engines, displaying real-time metrics:
+The browser client polls local WebWorker stats every **100ms** and receives periodic out-of-band server telemetry every **250ms** over WebSocket (`type: "server_telemetry"`). The UI renders two side-by-side telemetry panels for the **Browser Client (TypeScript)** and **Embedded Server (Python)**:
 
 | Metric | Description |
 | :--- | :--- |
@@ -103,10 +103,11 @@ The UI polls stats every **100ms** from both the client and server engines, disp
 | **Retransmissions** | Total ARQ retransmission requests fulfilled due to lost frames. |
 | **Retransmit Ratio (%)** | Percentage of sent frames that were retransmissions (`Retx / TX * 100`). |
 | **Smoothed RTT (SRTT)** | Jacobson/Karels smoothed round-trip time calculated from SACK ACKs. |
-| **Current RTO** | Adaptive Retransmission Timeout value dynamically computed by ARQ. |
-| **Parity Frames (FEC)** | Total 1-in-N XOR parity frames transmitted and received. |
+| **Adaptive RTO** | Adaptive Retransmission Timeout value dynamically computed by ARQ. |
+| **Est. Loss / Outbound Loss** | Client estimated ARQ loss rate (%) or Server outbound loss rate configuration (%). |
+| **Parity Frames (FEC)** | Total 1-in-N XOR parity frames transmitted and received (`TX / RX`). |
 | **FEC Parity Recoveries** | **Key Metric**: Counter indicating how many lost data frames were successfully reconstructed via XOR parity calculations *without requiring an ARQ retransmission request*. |
-| **Transfer Speed** | Current throughput in KB/s or MB/s and estimated time remaining. |
+| **App-MTU Config** | Configured App-MTU setting displayed in the card header badge (e.g. `220 B`). |
 
 ---
 
@@ -114,65 +115,82 @@ The UI polls stats every **100ms** from both the client and server engines, disp
 
 ```text
 +-----------------------------------------------------------------------------------+
-|  libPharosRTC Lossy Link Demo                                [Connected: 127.0.0.1:2500] |
+|  libPharosRTC Resilient WebRTC Transport Demo & Benchmarking     [ Disconnected ] |
+|  [ Connect WebRTC ]  [ Disconnect ]                                               |
 +-----------------------------------------------------------------------------------+
 |                                                                                   |
-|  [ LINK IMPAIRMENT CONTROLLER ]                                                   |
-|  Simulated Packet Loss: [====================|=========] 15%                        |
-|  Apply To: (o) Both Directions   ( ) Client TX Only   ( ) Server TX Only          |
-|                                                                                   |
-+-----------------------------------------------------------------------------------+
-|                                                                                   |
-|  [ FILE TRANSFER TEST BENCH ]                                                     |
-|  Direction: [ Upload (Client -> Server) ]   Preset Size: [ 1 MB ] [ 5 MB ] [ 10 MB ] |
-|  Custom File: [ Choose File ] no file selected                                   |
-|                                                                                   |
-|  [ START TRANSFER ]   [ CANCEL ]                                                  |
-|                                                                                   |
-|  Progress: [=========================>                    ] 52% (520 KB / 1000 KB) |
-|  Speed: 184 KB/s | Elapsed: 2.8s | Integrity: Hash Pending...                     |
+|  [ SIMULATED LINK IMPAIRMENT (SOFTWARE PACKET LOSS) ]                             |
+|  Packet Loss Rate: 15%                                                            |
+|  [====================|====================]                                      |
+|  Apply Loss To: (*) Both (TX + RX)   ( ) Client TX Only   ( ) Server TX Only      |
 |                                                                                   |
 +-----------------------------------------------------------------------------------+
 |                                                                                   |
-|  [ TELEMETRY & METRICS DASHBOARD ]                                                |
-|  +------------------------+ +------------------------+ +------------------------+ |
-|  | ARQ PACKET COUNTS      | | RTT & TIMEOUTS         | | FEC / XOR PARITY STATS | |
-|  | TX Frames:       2,840 | | SRTT:          42.1 ms | | Parity Frames:     284 | |
-|  | RX Frames:       2,810 | | RTO:          168.4 ms | | Parity Recoveries: 112 | |
-|  | Retransmissions:   382 | | Estimated Loss: 14.8 % | | (Losses recovered    | |
-|  | Retx Ratio:       13.4%| |                        | |  without retransmit) | |
-|  +------------------------+ +------------------------+ +------------------------+ |
+|  [ FILE TRANSFER STRESS BENCH ]                                                   |
+|  Mode: [ Upload (Client -> Server) v ]   Presets: [ 1 MB ]  [ 5 MB ]  [ 10 MB ]   |
+|  Custom Local File: [ Choose File ] no file selected                              |
+|  Selected Payload: 1 MB Synthetic Preset                                          |
+|                                                                                   |
+|  [ Start Transfer ]   [ Cancel ]                                                  |
+|                                                                                   |
+|  Progress: Transferring...                                                        |
+|  52.0% (545,250 / 1,048,576 B)                                                     |
+|  [=========================>                    ]                                 |
+|  Speed: 184.2 KB/s  |  Elapsed: 2.8s  |  Integrity Hash: [ PASS - SHA-256 Verified ]|
 |                                                                                   |
 +-----------------------------------------------------------------------------------+
 |                                                                                   |
-|  [ PRIORITY PREEMPTION TEST (ChID 0 - C2 Channel) ]                               |
-|  Send Command: [ Ping / C2 Test                      ] [ Send High-Priority C2 ]   |
+|  [ REAL-TIME ARQ & FEC TELEMETRY DASHBOARD ]                App-MTU Config: 220 B |
+|  +----------------------------------+  +----------------------------------+       |
+|  | Browser Client (TypeScript)      |  | Embedded Server (Python)         |       |
+|  | TX Frames:                 2,840 |  | TX Frames:                 2,810 |       |
+|  | RX Frames:                 2,810 |  | RX Frames:                 2,840 |       |
+|  | Retransmissions:             382 |  | Retransmissions:             350 |       |
+|  | Retransmit Ratio:           13.4%|  | Retransmit Ratio:           12.5%|       |
+|  | Smoothed RTT:             42.1 ms|  | Smoothed RTT:             41.8 ms|       |
+|  | Adaptive RTO:            168.4 ms|  | Adaptive RTO:            165.2 ms|       |
+|  | Est. ARQ Loss Rate:         14.8%|  | Outbound Loss Rate: 15.0% (both) |       |
+|  | Parity Frames TX / RX:   284 / 281|  | Parity Frames TX / RX:   281 / 284|       |
+|  | XOR Parity Recoveries:       112 |  | XOR Parity Recoveries:       108 |       |
+|  +----------------------------------+  +----------------------------------+       |
+|                                                                                   |
++-----------------------------------------------------------------------------------+
+|                                                                                   |
+|  [ COMMAND & CONTROL (ChID 0) PRIORITY PREEMPTION TEST ]                          |
+|  Send high-priority C2 messages during active file transfers on ChID 2 to         |
+|  demonstrate zero C2 starvation.                                                  |
+|                                                                                   |
+|  [ Enter command message...                          ] [ Send High-Priority C2 ]  |
 |  Log:                                                                             |
+|   14:02:11 [System] Ready to test priority preemption on ChID 0.                  |
 |   14:02:11 [C2 TX] Ping / C2 Test                                                 |
-|   14:02:11 [C2 RX] ACK: Ping / C2 Test (Latency: 18ms - Preempted Bulk File Stream)|
+|   14:02:11 [C2 RX] ACK: Ping / C2 Test                                            |
 |                                                                                   |
 +-----------------------------------------------------------------------------------+
 ```
 
 ---
 
-## 6. Project Directory Layout (`demo/`)
+## 6. Project Directory Layout
 
 ```text
-demo/
-├── DEMO_DESIGN.md              # Design specification (this document)
-├── demo_server.py              # Main Python web server & signaling daemon
-├── src/                        # Frontend TypeScript source for demo web app
-│   ├── index.ts                # Main application logic and UI event handlers
-│   ├── index.html              # Single-page HTML layout with styling
-│   ├── ImpairmentController.ts # Software packet loss simulator wrapper
-│   ├── FileTransferEngine.ts   # Chunking, hashing, and reassembly manager
-│   └── TelemetryUI.ts          # Live dashboard charts and stat updating
-├── static/                     # Compiled frontend assets served by demo_server.py
-│   ├── index.html
-│   ├── index.js
-│   └── style.css
-└── vite.config.demo.ts         # Vite build configuration for bundling demo web app
+libPharosRTC/
+├── vite.config.demo.ts         # Vite build configuration for bundling demo web app
+└── demo/
+    ├── DEMO_DESIGN.md          # Design specification (this document)
+    ├── demo_server.py          # Main Python web server & signaling daemon
+    ├── src/                    # Frontend TypeScript source for demo web app
+    │   ├── index.ts            # Main application logic and UI event handlers
+    │   ├── index.html          # Single-page HTML layout
+    │   ├── style.css           # Styling for demo UI dashboard
+    │   ├── ImpairmentController.ts # Software packet loss simulator wrapper
+    │   ├── FileTransferEngine.ts   # Chunking, hashing, and reassembly manager
+    │   └── TelemetryUI.ts      # Live dashboard metrics updating
+    └── static/                 # Compiled frontend assets served by demo_server.py
+        ├── index.html
+        └── assets/
+            ├── index-*.js
+            └── index-*.css
 ```
 
 ---
@@ -228,8 +246,11 @@ def handle_bulk(payload: bytes):
 link.on_receive(0, handle_c2)
 link.on_receive(2, handle_bulk)
 
-# Start single-port signaling server
+# Option A: Standalone signaling server
 await link.start_signaling(host="127.0.0.1", port=2500)
+
+# Option B: Direct SDP offer handling in an existing web server (as used in demo_server.py)
+# answer_sdp = await link.accept_offer(offer_sdp, client_ip=client_ip)
 ```
 
 ---

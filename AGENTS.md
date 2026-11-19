@@ -108,22 +108,35 @@ Every datagram passed to `RTCDataChannel.send()` starts with a fixed **14-byte B
 
 ```text
 libPharosRTC/
-├── DESIGN.md              # Technical design specification
-├── PLAN.md                # Implementation phases & roadmap
-├── AGENTS.md              # Agent prompt & developer guide
-├── CHAT.md                # Initial design discussion
+├── docs/                  # Technical specifications & developer guides
+│   ├── DESIGN.md          # Core architecture & protocol specification
+│   ├── REQUIRED.md        # System dependencies & build setup guide
+│   ├── PYTHON_DEVELOPER_GUIDE.md
+│   └── WEB_UI_DEVELOPER_GUIDE.md
+├── AGENTS.md              # AI agent prompt & developer guide
+├── README.md              # Repository overview & quick start
+├── demo/                  # Interactive lossy link demo app & server
+│   ├── DEMO_DESIGN.md
+│   ├── demo_server.py
+│   └── src/
 ├── src/
 │   ├── ts/                # TypeScript client library & WebWorker
+│   │   ├── config.ts
 │   │   ├── FrameCodec.ts
 │   │   ├── PriorityScheduler.ts
 │   │   ├── ArqEngine.ts
+│   │   ├── FecEngine.ts
 │   │   ├── SignalingClient.ts
 │   │   ├── WebRtcTransport.ts
-│   │   └── ArqWorker.ts
+│   │   ├── ArqWorker.ts
+│   │   ├── ResilientLinkClient.ts
+│   │   └── index.ts
 │   └── python/            # Python backend package
+│       ├── config.py
 │       ├── frame_codec.py
 │       ├── priority_scheduler.py
 │       ├── arq_engine.py
+│       ├── fec_engine.py
 │       ├── signaling_server.py
 │       ├── webrtc_backend.py
 │       └── link.py
@@ -131,7 +144,7 @@ libPharosRTC/
 │   ├── ts/                # Vitest unit tests
 │   ├── python/            # Pytest unit tests
 │   └── e2e/               # Playwright + netem network impairment tests
-└── scripts/               # Impairment test scripts (tc netem)
+└── scripts/               # Impairment test scripts & report generation
 ```
 
 ---
