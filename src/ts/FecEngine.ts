@@ -81,7 +81,7 @@ export function decodeParityPayload(payload: Uint8Array): {
 
 export class FecEncoder {
   private groupSize: number;
-  private currentGroup: Frame[] = [];
+  private currentGroups: Map<number, Frame[]> = new Map();
 
   constructor(groupSize: number) {
     this.groupSize = groupSize;
@@ -90,24 +90,24 @@ export class FecEncoder {
   public addDataFrame(frame: Frame): Frame | null {
     if (this.groupSize <= 0) return null;
 
-    if (
-      this.currentGroup.length > 0 &&
-      this.currentGroup[0].header.chid !== frame.header.chid
-    ) {
-      this.currentGroup = [];
+    const chid = frame.header.chid;
+    let group = this.currentGroups.get(chid);
+    if (!group) {
+      group = [];
+      this.currentGroups.set(chid, group);
     }
 
-    this.currentGroup.push(frame);
+    group.push(frame);
 
-    if (this.currentGroup.length >= this.groupSize) {
-      const groupSeqStart = this.currentGroup[0].header.sequenceNumber;
-      const payloads = this.currentGroup.map((f) => f.payload);
+    if (group.length >= this.groupSize) {
+      const groupSeqStart = group[0].header.sequenceNumber;
+      const payloads = group.map((f) => f.payload);
       const parityBytes = xorBuffers(payloads);
 
       let flagsMask = 0;
       const endLengths = new Map<number, number>();
       for (let i = 0; i < this.groupSize; i++) {
-        const f = this.currentGroup[i];
+        const f = group[i];
         if ((f.header.flags & FLAG_MSG_END) !== 0) {
           flagsMask |= (1 << i);
           endLengths.set(i, f.header.payloadLength);
@@ -115,7 +115,7 @@ export class FecEncoder {
       }
 
       const parityPayload = encodeParityPayload(groupSeqStart, this.groupSize, parityBytes, flagsMask, endLengths);
-      const lastFrameHeader = this.currentGroup[this.currentGroup.length - 1].header;
+      const lastFrameHeader = group[group.length - 1].header;
 
       const parityFrame: Frame = {
         header: {
@@ -131,7 +131,7 @@ export class FecEncoder {
         payload: parityPayload,
       };
 
-      this.currentGroup = [];
+      this.currentGroups.delete(chid);
       return parityFrame;
     }
 
@@ -141,7 +141,7 @@ export class FecEncoder {
 
 export class FecDecoder {
   private groupSize: number;
-  private receivedGroups: Map<number, Map<number, Frame>> = new Map();
+  private receivedGroups: Map<number, Map<number, Map<number, Frame>>> = new Map();
 
   constructor(groupSize: number) {
     this.groupSize = groupSize;
@@ -149,32 +149,44 @@ export class FecDecoder {
 
   public addDataFrame(frame: Frame): void {
     if (this.groupSize <= 0) return;
+    const chid = frame.header.chid;
     const seq = frame.header.sequenceNumber;
     const groupSeqStart = seq - (seq % this.groupSize);
-    if (!this.receivedGroups.has(groupSeqStart)) {
-      this.receivedGroups.set(groupSeqStart, new Map());
+
+    let chMap = this.receivedGroups.get(chid);
+    if (!chMap) {
+      chMap = new Map();
+      this.receivedGroups.set(chid, chMap);
     }
-    const groupMap = this.receivedGroups.get(groupSeqStart)!;
+
+    let groupMap = chMap.get(groupSeqStart);
+    if (!groupMap) {
+      groupMap = new Map();
+      chMap.set(groupSeqStart, groupMap);
+    }
+
     groupMap.set(seq, frame);
 
     if (groupMap.size >= this.groupSize) {
-      this.receivedGroups.delete(groupSeqStart);
+      chMap.delete(groupSeqStart);
     }
 
-    if (this.receivedGroups.size > 64) {
-      const keys = Array.from(this.receivedGroups.keys());
+    if (chMap.size > 64) {
+      const keys = Array.from(chMap.keys());
       keys.sort((a, b) => ((a - seq) >>> 0) - ((b - seq) >>> 0));
       for (let i = 0; i < keys.length - 32; i++) {
-        this.receivedGroups.delete(keys[i]);
+        chMap.delete(keys[i]);
       }
     }
   }
 
   public processParityFrame(parityFrame: Frame): Frame | null {
     if (this.groupSize <= 0) return null;
+    const chid = parityFrame.header.chid;
 
     const { groupSeqStart, groupSize, flagsMask, endLengths, parityBytes } = decodeParityPayload(parityFrame.payload);
-    const groupMap = this.receivedGroups.get(groupSeqStart) || new Map();
+    const chMap = this.receivedGroups.get(chid);
+    const groupMap = chMap?.get(groupSeqStart) || new Map();
 
     const missingSeqs: number[] = [];
     for (let i = 0; i < groupSize; i++) {
@@ -215,7 +227,9 @@ export class FecDecoder {
       };
 
       groupMap.set(missingSeq, recoveredFrame);
-      this.receivedGroups.delete(groupSeqStart);
+      if (chMap) {
+        chMap.delete(groupSeqStart);
+      }
       return recoveredFrame;
     }
 

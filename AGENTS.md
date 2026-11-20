@@ -151,8 +151,11 @@ libPharosRTC/
 
 ## 5. Git Execution Policy
 
-Agents must treat Git operations as **strictly read-only**. Do not
-make, stage, alter, or push any changes via Git.
+Agents must treat Git operations as **strictly read-only by default**. Do not
+make, stage, alter, or push any changes via Git unless explicitly authorized.
+
+- **Explicit Permission Override:**
+  If the user includes the phrase `"permission granted for this turn only"` (or explicitly instructs the agent to perform a specific Git write action, such as `git add` or `git commit`), mutating Git operations are permitted **for that turn only**.
 
 - **Allowed (Read-Only):**
   - Repository status: `git status`, `git status --short`
@@ -163,7 +166,7 @@ make, stage, alter, or push any changes via Git.
     `git remote -v`
   - File search & tree listing: `git ls-files`, `git grep`
 
-- **Forbidden (Modifying/Mutating):**
+- **Forbidden (Modifying/Mutating without explicit permission):**
   - Staging or committing: `git add`, `git commit`, `git rm`, `git mv`
   - Remote alterations: `git push`, `git fetch`, `git pull`
   - State or ref manipulation: `git checkout`, `git switch`, `git
@@ -171,9 +174,9 @@ make, stage, alter, or push any changes via Git.
   - Branch or history modification: `git branch -d/-D`, `git merge`,
     `git rebase`, `git cherry-pick`, `git tag`, `git stash`
 
-*Rule:* If you need to inspect repository state, use only the allowed
- read-only commands. File edits should be handled through normal file
- system modifications—never stage or commit them.
+*Rule:* Unless explicit permission is granted for the turn, use only read-only
+ commands for Git inspection. File edits should otherwise be handled through
+ normal file system modifications—never stage or commit them without approval.
 
 ---
 

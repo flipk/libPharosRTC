@@ -74,3 +74,61 @@ def test_fec_zero_retransmission_recovery_k4():
     assert recovered_frame is not None
     assert recovered_frame.header.sequence_number == 2
     assert bytes(recovered_frame.payload) == bytes(data_frames[2].payload)
+
+def test_fec_multichannel_interleaving():
+    K = 4
+    encoder = FecEncoder(K)
+    decoder = FecDecoder(K)
+
+    ch2_frames = [
+        Frame(
+            header=FrameHeader(
+                version=PROTOCOL_VERSION,
+                flags=FLAG_MSG_END,
+                chid=2,
+                ack_chid=0,
+                payload_length=3,
+                sequence_number=i,
+                cumulative_ack_seq=0,
+                sack_mask=0,
+            ),
+            payload=bytes([100 + i, 101 + i, 102 + i]),
+        )
+        for i in range(K)
+    ]
+
+    ch0_frame = Frame(
+        header=FrameHeader(
+            version=PROTOCOL_VERSION,
+            flags=FLAG_MSG_END,
+            chid=0,
+            ack_chid=0,
+            payload_length=5,
+            sequence_number=0,
+            cumulative_ack_seq=0,
+            sack_mask=0,
+        ),
+        payload=bytes([1, 2, 3, 4, 5]),
+    )
+
+    # Interleave ChID 2 and ChID 0 in encoder
+    assert encoder.add_data_frame(ch2_frames[0]) is None
+    assert encoder.add_data_frame(ch2_frames[1]) is None
+    assert encoder.add_data_frame(ch0_frame) is None
+    assert encoder.add_data_frame(ch2_frames[2]) is None
+    ch2_parity = encoder.add_data_frame(ch2_frames[3])
+
+    assert ch2_parity is not None
+    assert ch2_parity.header.chid == 2
+
+    # Decoder receives ChID 0 frame and ChID 2 frames (dropping ch2_frames[2])
+    decoder.add_data_frame(ch0_frame)
+    decoder.add_data_frame(ch2_frames[0])
+    decoder.add_data_frame(ch2_frames[1])
+    decoder.add_data_frame(ch2_frames[3])
+
+    recovered_ch2_frame = decoder.process_parity_frame(ch2_parity)
+    assert recovered_ch2_frame is not None
+    assert recovered_ch2_frame.header.chid == 2
+    assert recovered_ch2_frame.header.sequence_number == 2
+    assert bytes(recovered_ch2_frame.payload) == bytes(ch2_frames[2].payload)
