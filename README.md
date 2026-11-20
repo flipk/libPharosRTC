@@ -16,6 +16,66 @@
 - [Web UI Developer Guide](docs/WEB_UI_DEVELOPER_GUIDE.md) - Integrating libPharosRTC into TypeScript/JavaScript browser applications.
 - [Python Server-Side Developer Guide](docs/PYTHON_DEVELOPER_GUIDE.md) - Integrating libPharosRTC into Python / embedded Linux backends.
 
+---
+
+## Building & Running
+
+### Prerequisites
+- **Node.js**: v18 or newer and `npm`
+- **Python**: Python 3.9+ with `venv` and `pip`
+
+### 1. Environment Setup
+Install Node dependencies and set up the Python virtual environment:
+
+```bash
+# Install Node/TypeScript dependencies
+npm install
+
+# Set up Python virtual environment and install dependencies
+python3 -m venv venv
+source venv/bin/activate
+pip install aiortc aiohttp websockets cryptography pytest pytest-asyncio
+```
+
+### 2. Building the Library & Demo
+```bash
+# Build the TypeScript client library (outputs to dist/)
+npm run build
+
+# Build the interactive frontend demo application (outputs to demo/static/)
+npm run build:demo
+```
+
+### 3. Running the Interactive Demo
+Start the single-port demo server (serves both static web assets and WebRTC signaling):
+
+```bash
+# Run via active virtual environment:
+python3 demo/demo_server.py --port 2500
+
+# Or directly using the venv executable:
+./venv/bin/python3 demo/demo_server.py --port 2500
+```
+
+Open Chrome or any modern web browser at **`http://localhost:2500`** to access the interactive dashboard.
+
+#### Server CLI Options
+- `--host` (default: `127.0.0.1`): Bind IP address.
+- `--port` (default: `2500`): HTTP and WebSocket server port.
+- `--profile` (default: `terrestrial`): Link configuration profile (`terrestrial` = 220B App-MTU, `starlink` = 900B App-MTU).
+- `--static-dir` (default: `demo/static`): Path to built static web assets.
+
+### 4. Running Tests
+```bash
+# Run TypeScript unit tests (Vitest)
+npm test
+
+# Run Python unit and cross-language tests (Pytest)
+./venv/bin/pytest
+```
+
+---
+
 
 ### Core Architectural Decisions
 1. **Zero-Install Browser Endpoint:** Uses standard browser
