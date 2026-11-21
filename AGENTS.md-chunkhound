@@ -1,0 +1,54 @@
+
+## Codebase Discovery & Research (ChunkHound MCP)
+
+You have access to the **ChunkHound MCP server** (`search` and
+`code_research`), backed by a semantic embedding index, a reranker,
+and Tree-sitter AST chunking across this repository (TypeScript,
+Python, and demo code).
+
+**Always prefer ChunkHound tools over iterative `grep` / `glob` /
+  `read` exploration loops.**
+
+### 1. Default Tool: ChunkHound `search` (Semantic & Regex)
+
+Default to ChunkHound's **`search`** tool (supporting semantic and
+regex search with reranking) as your primary lookup tool whenever
+locating specific implementations, functions, classes, symbols, error
+messages, or concepts.
+
+* **Use `search` for:**
+  * Locating specific function/method definitions, class
+    implementations, schemas, or constants.
+  * Searching by concept or keyword when exact naming (`camelCase`
+    vs. `snake_case`) is uncertain.
+  * Pinpointing target files and line numbers before reading or editing.
+* Use built-in `grep` **only** for exact, known literal string matches
+  within a single known file or narrow directory.
+
+### 2. Reserve `code_research` Strictly for Broad Architectural Questions
+
+Note: `code_research` performs multi-step semantic retrieval and AI
+synthesis, which can take **>120 seconds**. Reserve `code_research`
+strictly for broad, cross-file architectural questions and high-level
+system mapping where targeted `search` queries are insufficient.
+
+* **Reserve `code_research` for:**
+  * High-level architectural questions across the repository or across
+    language boundaries (e.g., "How does packet retransmission work
+    end-to-end between TypeScript and Python?").
+  * Complex, multi-subsystem flow analysis (e.g., mapping the
+    connection lifecycle from WebSocket signaling through ICE-Lite
+    setup).
+* **Do NOT use `code_research` for:**
+  * Finding specific functions, classes, files, symbols, or error
+    strings (use `search`).
+  * Targeted code lookups or simple multi-file searches (use `search`).
+
+### 3. Production Code vs. Demo Code Hygiene
+
+* This repository contains demo/example scripts alongside production
+  TypeScript and Python code.
+* When planning production edits or searching for canonical
+  implementations, explicitly scope your ChunkHound queries to exclude
+  demo/example paths unless the user specifically asks to inspect or
+  update the demos.
